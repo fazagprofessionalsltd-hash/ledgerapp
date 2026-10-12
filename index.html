@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ledger Accounting</title>
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#12304a">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--ink:#12304a;--paper:#f1f4f2;--card:#fff;--rule:#cdd8d2;--ok:#0e6b58;--dr:#a2382b;--mute:#5b6b77}
+@media(prefers-color-scheme:dark){:root{--ink:#dbe8f2;--paper:#0f1a22;--card:#16252f;--rule:#2c4150;--ok:#6fd1b4;--dr:#ef8b7d;--mute:#93a6b4}}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 system-ui,sans-serif}
+h2,h3{font-family:Georgia,serif;margin:.2em 0 .6em}
+header{position:sticky;top:0;z-index:10;height:54px;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 16px;background:#12304a;color:#fff}
+header img{height:38px;max-width:150px;object-fit:contain;margin-right:10px;border-radius:4px;background:#fff}.brand{display:flex;align-items:center;font-family:Georgia,serif;font-size:19px}
+.layout{display:flex;min-height:calc(100vh - 54px)}
+nav{position:sticky;top:54px;align-self:flex-start;height:calc(100vh - 54px);overflow-y:auto;width:210px;flex:none;background:var(--card);border-right:2px solid var(--rule);padding:10px 0}
+nav a{display:block;padding:11px 18px;cursor:pointer;border-left:4px solid transparent}
+nav a:hover{background:var(--paper)}
+nav a.on{border-color:var(--ok);font-weight:600;color:var(--ok);background:var(--paper)}
+nav hr{border:0;border-top:1px solid var(--rule);margin:8px 0}nav a.mod{font-weight:700}nav a.sub{padding-left:30px}nav .grp{padding:10px 18px 4px;font-weight:700;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
+main{flex:1;min-width:0;max-width:1100px;margin:0 auto;padding:16px}
+.fb{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:8px 0;align-items:end}.fb input,.fb select{margin-top:2px}
+.ent{min-width:960px}.ent td{padding:4px}.ent input,.ent select{margin:0}.ent td:nth-child(5) input{min-width:170px}.ent td:nth-child(8) input{min-width:100px}
+.stmt{min-width:1150px}.stmt td:first-child,.stmt th:first-child{position:sticky;left:0;background:var(--card);min-width:190px}.stmt .h td:first-child{background:var(--paper)}tr.h td{font-weight:700;background:var(--paper)}
+.cs{width:auto;max-width:200px;margin:0 0 0 14px;padding:5px;background:#fff;color:#12304a}
+.mb{display:none;padding:5px 11px;margin:0 10px 0 0;background:transparent;border:1px solid #fff}
+@media(max-width:760px){.mb{display:inline-block}.brand{flex:1}
+nav{position:fixed;height:auto;top:54px;bottom:0;left:0;z-index:5;transform:translateX(-100%);transition:transform .2s;overflow-y:auto}
+nav.open{transform:none;box-shadow:4px 0 16px rgba(0,0,0,.3)}}
+@media(prefers-reduced-motion:reduce){nav{transition:none}}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:6px;padding:16px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+label{display:block;font-size:13px;color:var(--mute)}
+input,select,button{font:inherit;width:100%;padding:9px;margin-top:3px;border:1px solid var(--rule);border-radius:4px;background:var(--paper);color:var(--ink)}
+button{background:var(--ok);color:#fff;border:0;cursor:pointer;width:auto;padding:9px 16px}
+button.g{background:transparent;color:inherit;border:1px solid currentColor;padding:5px 10px;margin:0}
+button.s{padding:4px 10px;margin:0;background:var(--ink);color:var(--paper)}
+.w{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{padding:7px 9px;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+th{background:var(--paper);font-weight:600}.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dr{color:var(--dr)}.cr{color:var(--ok)}.sm{font-size:12px;color:var(--mute)}
+.bal b{display:block;font:600 22px Georgia,serif}.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+tr.t td{font-weight:700;border-top:2px solid var(--ink)}.login{max-width:380px;margin:2vh auto}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 18px;border-radius:6px;display:none}
+.hb{height:12px;background:var(--ok);border-radius:3px;min-width:2px}
+</style></head><body><div id="app"></div><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s),CATS=['Revenue','Direct Costs','Expense','Assets','Equity','Liabilities'];
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const when=t=>t?new Date(t).toLocaleString():'';
+/* ---------- cloud sync (Supabase) ---------- */
+/* Paste your own values from Supabase: Project Settings > API. Use the anon/public key ONLY. */
+const SUPABASE_URL='https://jsrrqqnxzleqhdkmtjvz.supabase.co',SUPABASE_KEY='sb_publishable__S9vxgX40m5xx3pZhX6Yhw_k1m-QRyg';
+let sb=null;try{if(window.supabase&&/^https:\/\//.test(SUPABASE_URL))sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){}
+const cloud={user:null,ready:false,msg:''};let ctimer=null;
+const cloudPush=()=>{if(!sb||!cloud.user||!cloud.ready)return;clearTimeout(ctimer);ctimer=setTimeout(pushNow,1500)};
+async function pushNow(){
+ if(!sb||!cloud.user||!cloud.ready)return;
+ const ts=new Date().toISOString();
+ try{const{error}=await sb.from('ledger_state').upsert({user_id:cloud.user.id,data:root,updated_at:ts});if(error)throw error;
+  localStorage.setItem('acc_cts',ts);localStorage.removeItem('acc_pend');cloud.msg='Synced '+when(ts)}
+ catch(e){cloud.msg='Not synced yet ('+(e.message||'offline')+'). Will retry when online.'}}
+async function pull(){
+ if(!sb||!cloud.user)return;
+ try{
+  const{data,error}=await sb.from('ledger_state').select('data,updated_at').eq('user_id',cloud.user.id).maybeSingle();
+  if(error)throw error;
+  const pend=!!localStorage.getItem('acc_pend'),hasLocal=root.users.length>0;
+  cloud.ready=true;
+  if(!data){if(hasLocal)await pushNow();else cloud.msg='Connected. No cloud data yet.';return}
+  const newer=data.updated_at>(localStorage.getItem('acc_cts')||'');
+  let useCloud=newer&&!pend;
+  if(newer&&pend)useCloud=confirm('The cloud has newer data, but this device has changes that were not synced.\n\nOK = use the cloud data (discard this device\'s unsynced changes)\nCancel = keep this device\'s data and overwrite the cloud');
+  if(!hasLocal&&data.data&&data.data.users)useCloud=true;
+  if(useCloud){root=data.data;ensure();if(!root.companies[root.active])root.active=Object.keys(root.companies)[0];
+   persist();localStorage.setItem('acc_cts',data.updated_at);localStorage.removeItem('acc_pend');cloud.msg='Loaded from cloud '+when(data.updated_at)}
+  else if(pend)await pushNow();
+  else cloud.msg='Up to date '+when(data.updated_at);
+ }catch(e){cloud.ready=false;cloud.msg='Offline - using data stored on this device'}}
+function cloudLogin(){$('#app').innerHTML=`<div class="card login" style="margin-top:8vh"><h2>Cloud sign in</h2>
+ <label>Email<input id="k_e" type="email" autocomplete="username"></label><label>Password<input id="k_p" type="password" autocomplete="current-password"></label>
+ <p><button onclick="cloudIn()">Sign in</button> <button class="s" onclick="skipCloud()">Continue offline</button></p>
+ <p class="sm">This is the cloud account that stores your data, not a Ledger user login.</p></div>`}
+async function cloudIn(){const{data,error}=await sb.auth.signInWithPassword({email:$('#k_e').value.trim(),password:$('#k_p').value});
+ if(error)return toast(error.message);cloud.user=data.user;await pull();render()}
+function skipCloud(){sessionStorage.setItem('acc_offline','1');render()}
+async function cloudOut(){if(!confirm('Sign out of cloud sync on this device?'))return;await sb.auth.signOut();sessionStorage.removeItem('acc_offline');location.reload()}
+async function syncNow(){toast('Syncing...');await pull();await pushNow();render()}
+function cloudCard(){
+ if(!sb)return '<p class="sm">Cloud sync is not set up. Add your Supabase project URL and anon key near the top of index.html, then redeploy.</p>';
+ if(!cloud.user)return '<p class="sm">Not signed in to the cloud. Data is stored on this device only.</p><p><button onclick="sessionStorage.removeItem(\'acc_offline\');location.reload()">Sign in to cloud</button></p>';
+ return `<p class="sm">Signed in as <b>${esc(cloud.user.email)}</b>. ${esc(cloud.msg)}${localStorage.getItem('acc_pend')?' Changes waiting to sync.':''}</p><div class="bar"><button onclick="syncNow()">Sync now</button><button class="s" onclick="cloudOut()">Sign out</button></div>
+ <p class="sm">Every change is saved on this device first and uploaded a moment later. If two devices edit at the same time, the last one to save wins.</p>`}
+async function boot(){
+ if(!sb)return render();
+ try{const{data:{session}}=await sb.auth.getSession();
+  if(!session)return sessionStorage.getItem('acc_offline')?render():cloudLogin();
+  cloud.user=session.user;await pull()}catch(e){}
+ render()}
+addEventListener('online',()=>{if(cloud.user)syncNow()});
+
+let root;try{root=JSON.parse(localStorage.getItem('acc'))}catch(e){}
+const seed=name=>({co:{name,logo:''},payees:[],tx:[],classes:[['Cash','Assets'],['Bank','Assets'],['Sales','Revenue'],['Cost of Goods','Direct Costs'],['Rent','Expense'],['Equipment','Assets'],["Owner's Capital",'Equity'],['Loans','Liabilities']].map(([n,c])=>({n,c}))});
+if(root&&!root.companies){const o=root;root={users:o.users,companies:{c1:{co:o.co,payees:o.payees,tx:o.tx,classes:o.classes,modes:o.modes}},active:'c1'}}
+root=root||{users:[],companies:{c1:seed('')},active:'c1'};
+Object.values(root.companies).forEach(c=>{if(c.modes){c.modes.forEach(m=>{if(!c.classes.some(x=>x.n==m))c.classes.push({n:m,c:'Assets'})});
+ c.tx.forEach(t=>{if(t.mode){const d=t.type=='Debit';t.dr=d?t.cls:t.mode;t.cr=d?t.mode:t.cls;delete t.cls;delete t.mode;delete t.type}});delete c.modes}});
+if(!root.companies[root.active])root.active=Object.keys(root.companies)[0];
+const DEPTS=['Administration','Finance','Human Resources','Operations','Projects','Sales'];
+const ensure=()=>Object.values(root.companies).forEach(c=>{
+ const P=(p,n)=>p+String(n).padStart(3,'0');
+ c.projects=c.projects||[];c.ptx=c.ptx||[];c.att=c.att||[];c.leave=c.leave||[];c.pay=c.pay||[];c.hrc=c.hrc||JSON.parse(JSON.stringify(HDEF));c.reqs=c.reqs||[];c.staff=c.staff||[];c.depts=c.depts||[...DEPTS];c.inv=c.inv||[];c.buds=c.buds||[];c.budSeq=Math.max(c.budSeq||0,c.buds.length);c.buds.forEach(b=>{if(!b.bs)b.bs='Pending'});c.reps=c.reps||[];c.clients=c.clients||[];c.invSeq=Math.max(c.invSeq||0,c.inv.length);c.repSeq=Math.max(c.repSeq||0,c.reps.length);
+ c.prjSeq=Math.max(c.prjSeq||0,c.projects.length);c.empSeq=Math.max(c.empSeq||0,c.staff.length);c.reqSeq=Math.max(c.reqSeq||0,c.reqs.length);
+ c.projects.forEach(p=>{if(!p.no)p.no=P('PRJ-',++c.prjSeq);['value','vat','wht','net'].forEach(k=>p[k]=p[k]||0);if(!p.bs){p.bs='Approved';p.bby='Migrated'}if(p.client===undefined)p.client=''});
+ c.staff.forEach(s=>{if(!s.no)s.no=P('EMP-',++c.empSeq);s.mg=s.mg||0;s.ag=s.ag||0;s.inactive=s.inactive||''});
+ c.ptx.forEach(t=>{if(t.doc===undefined)t.doc=t.ref||'';if(t.payee===undefined)t.payee=''})});ensure();
+const persist=()=>localStorage.setItem('acc',JSON.stringify(root));const save=()=>{persist();localStorage.setItem('acc_pend','1');cloudPush()};persist();
+const db=new Proxy({},{get:(_,k)=>k=='users'?root.users:root.companies[root.active][k],set:(_,k,v)=>{(k=='users'?root:root.companies[root.active])[k]=v;return true}});
+
+let me=null;try{me=JSON.parse(sessionStorage.getItem('me'))}catch(e){}
+let view='Dashboard',editId=null,draft=null;
+const today=()=>new Date().toISOString().slice(0,10);
+const hash=async s=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('ledger:'+s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')};
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2500)};
+const catOf=n=>(db.classes.find(c=>c.n==n)||{}).c||'';
+const classTotal=n=>db.tx.reduce((a,t)=>a+(t.dr==n?t.amt:0)-(t.cr==n?t.amt:0),0);
+const inCat=(t,c)=>catOf(t.dr)==c||catOf(t.cr)==c;
+const catTotal=c=>db.classes.filter(x=>x.c==c).reduce((a,x)=>a+classTotal(x.n),0);
+
+/* ---------- auth ---------- */
+function authScreen(){
+ const first=!db.users.length;
+ $('#app').innerHTML=`<div class="brand" style="justify-content:center;margin-top:6vh">${db.co.logo?`<img src="${db.co.logo}" alt="" style="height:48px;margin-right:12px">`:''}${esc(db.co.name||'Ledger')}</div><div class="card login" style="margin-top:2vh"><h2>${first?'Set up your organisation':'Sign in'}</h2>
+ ${first?`<label>Organisation name<input id="a_co"></label><label>Your full name<input id="a_n"></label>`:''}
+ <label>Username<input id="a_u" autocomplete="username"></label>
+ <label>Password<input id="a_p" type="password" autocomplete="current-password"></label>
+ <p><button onclick="${first?'setup()':'login()'}">${first?'Create admin account':'Sign in'}</button></p>
+ ${first?'<p class="sm">The first account is the administrator. Add staff later from the Admin tab.</p>':''}</div>`;
+}
+async function setup(){const u=$('#a_u').value.trim(),p=$('#a_p').value,n=$('#a_n').value.trim();
+ if(!u||p.length<4||!n)return toast('Enter name, username and a password of 4+ characters');
+ db.co.name=$('#a_co').value.trim();db.users.push({u,n,h:await hash(p),role:'admin'});save();start(db.users[0])}
+async function login(){const u=$('#a_u').value.trim(),h=await hash($('#a_p').value);
+ const x=db.users.find(x=>x.u==u&&x.h==h);x?start(x):toast('Wrong username or password')}
+function start(x){me={u:x.u,n:x.n,role:x.role};sessionStorage.setItem('me',JSON.stringify(me));view='Dashboard';render()}
+function out(){sessionStorage.removeItem('me');me=null;render()}
+
+/* ---------- shell ---------- */
+const SECS={Directors:['Summary','Project budgets','Requests awaiting approval','Project reports','Approved requests'],'Human Resources':['Staff summary','Add staff','Staff register','Attendance','Leave','Payroll','HR analytics','Approval request'],'My HR':['Clock in/out','My leave','My payslips'],Projects:['Summary','Add project','Project budget','Transactions','Payment request','Project report'],Admin:['Organisation','User logins','Backup and restore','Cloud sync']};
+const SEC={};Object.keys(SECS).forEach(m=>SEC[m]=SECS[m][0]);
+const goSec=(m,s)=>{view=m;SEC[m]=s;render()};
+const secOf=(m,h)=>{const o={};h.split('<!--S:').slice(1).forEach(x=>{const i=x.indexOf('-->'),k=x.slice(0,i);o[k]=(o[k]||'')+x.slice(i+3)});return o[SEC[m]]||''};
+const go=v=>{view=v;render()};
+const menu=()=>$('nav').classList.toggle('open');
+function render(fresh){
+ ensure();
+ const cs={},snap={};if(!fresh)document.querySelectorAll('#app canvas').forEach(c=>{if(c._d)cs[c.id]=c.toDataURL()});if(!fresh)document.querySelectorAll('#app [id]').forEach(e=>{if(/^(p_|h_|iv_|rp_|bg_|qProjects|qHR|qFinance)/.test(e.id))snap[e.id]=e.value});
+ const U=me&&root.users.find(u=>u.u==me.u);if(!U){me=null;sessionStorage.removeItem('me')}else me.role=U.role;
+ if(!me)return authScreen();
+ const r=me.role,ad=r=='admin';
+ const mods=[...(ad||r=='director'?['Directors']:[]),...(ad||r=='hr'?['Human Resources']:[]),...(ad||r=='project'?['Projects']:[]),...(ad?['Admin']:[]),...(hMine()?['My HR']:[])];
+ const FIN=ad||r=='finance'?['Dashboard','Financial Reports',...CATS,'Issue Invoice','Project Reports','Project Budget Forms','Request to Directors','Finance Approvals']:[];
+ const vs=[...mods,...FIN];
+ if(!vs.includes(view))view=vs[0]||'';
+ const body=!vs.length?(()=>'<div class="card"><h2>No module assigned</h2><p>Your login has no module assigned yet. Please ask your administrator to assign a role.</p></div>'):({Dashboard:dash,'Financial Reports':fin,Admin:admin,Projects:projView,'Human Resources':hrView,'My HR':myView,Directors:dirView,'Request to Directors':finReq,'Issue Invoice':invView,'Project Reports':repView,'Project Budget Forms':bgView,'Finance Approvals':finView})[view]||(()=>catView(view));
+ const sb=(t,on,c)=>`<a class="sub ${on?'on':''}" onclick="${c}">${t}</a>`;
+ const navH=[...mods.map(m=>`<div class="grp">${m}</div>`+SECS[m].map(s=>sb(s,view==m&&SEC[m]==s,`goSec('${m}','${s}')`)).join('')),...(FIN.length?[`<div class="grp">Finance and Accounts</div>`+FIN.map(v=>sb(v,v==view,`go('${v}')`)).join('')]:[])].join('<hr>');
+ $('#app').innerHTML=`<header><button class="mb" onclick="menu()" aria-label="Menu">&#9776;</button><div class="brand">${db.co.logo?`<img src="${db.co.logo}" alt="">`:''}${esc(db.co.name||'Ledger')}</div><div style="margin-left:auto">${esc(me.n)} <span class="sm" style="color:#c9d6df">(${esc(r)})</span> <button class="g" onclick="out()">Sign out</button></div></header>
+ <div class="layout"><nav>${navH}</nav><main>${SECS[view]?secOf(view,body()):body()}</main></div>`;
+ Object.entries(snap).forEach(([k,v])=>{const e=document.getElementById(k);if(e)e.value=v});
+ initSig();Object.entries(cs).forEach(([k,u])=>{const c=document.getElementById(k);if(c){c._d=1;const im=new Image;im.onload=()=>c.getContext('2d').drawImage(im,0,0);im.src=u}});
+ ['qProjects','qHR','qFinance'].forEach(rqTot);pCalc();hCalc();invCalc();bgTot()}
+
+/* ---------- transaction form ---------- */
+const FK=['date','payee','doc','desc','dr','cr','amt'],blank=()=>({date:today()});
+const grab=()=>{if(draft)draft=draft.map((_,i)=>Object.fromEntries(FK.map(k=>[k,$('#f_'+k+'_'+i).value])))};
+const sel=(f,i,items,v,lab)=>`<select id="f_${f}_${i}" onchange="pick('${f}',${i},this)"><option value="">${lab}</option>${items}<option value="__new">+ Add new…</option></select>`.replace(`value="${esc(v)}"`,`value="${esc(v)}" selected`);
+function pick(f,i,el){
+ if(el.value!='__new')return;
+ grab();let n=prompt('Enter new name');n=n&&n.trim();draft[i][f]='';
+ if(n){
+  if(f=='dr'||f=='cr'){const k=parseInt(prompt('Category?\n'+CATS.map((c,j)=>(j+1)+' = '+c).join('\n')),10);
+   if(!CATS[k-1])return render();if(!db.classes.some(c=>c.n==n))db.classes.push({n,c:CATS[k-1]})}
+  else if(!db.payees.includes(n))db.payees.push(n)
+  draft[i][f]=n;save()}
+ render()}
+const addRow=()=>{grab();draft.push(blank());render()};
+function dash(){
+ const t=editId?db.tx.find(x=>x.id==editId):null;
+ if(!draft)draft=t?[{...t}]:Array.from({length:5},blank);
+ const o=l=>l.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+ const cl=CATS.map(c=>{const k=db.classes.filter(x=>x.c==c);return k.length?`<optgroup label="${c}">${k.map(x=>`<option value="${esc(x.n)}">${esc(x.n)}</option>`).join('')}</optgroup>`:''}).join('');
+ const inp=(f,i,d,type='text',x='')=>`<input id="f_${f}_${i}" type="${type}" ${x} value="${esc(d[f])}">`;
+ return `<div class="card"><h2>${editId?'Edit transaction':'Record transactions'}</h2>
+ <div class="w"><table class="ent"><thead><tr><th>#</th><th>Date</th><th>Payer / Payee</th><th>Doc No.</th><th>Description</th><th>Debit class</th><th>Credit class</th><th>Amount</th></tr></thead><tbody>
+ ${draft.map((d,i)=>`<tr><td>${i+1}</td><td>${inp('date',i,d,'date')}</td><td>${sel('payee',i,o(db.payees),d.payee,'Select')}</td><td>${inp('doc',i,d)}</td><td>${inp('desc',i,d)}</td>
+ <td>${sel('dr',i,cl,d.dr,'Select')}</td><td>${sel('cr',i,cl,d.cr,'Select')}</td><td>${inp('amt',i,d,'number','min="0" step="0.01"')}</td></tr>`).join('')}</tbody></table></div>
+ <div class="bar"><button onclick="post()">${editId?'Save changes':'Post all transactions'}</button>${editId?'<button class="g" onclick="editId=null;draft=null;render()">Cancel</button>':'<button class="g" onclick="addRow()">+ Add row</button>'}
+ <span class="sm">Fill as many lines as you need; empty lines are skipped. Each amount is added to the debit class and reduced from the credit class.</span></div></div>
+ <div class="card"><h3>Transactions</h3>${fbar(['date','payee','amt'])}<div id="txbox">${txbox()}</div></div>`;
+}
+function post(){
+ grab();const now=new Date().toISOString(),recs=[];
+ for(let i=0;i<draft.length;i++){const d=draft[i],amt=parseFloat(d.amt);
+  if(!editId&&!d.payee&&!d.doc&&!d.desc&&!d.dr&&!d.cr&&!d.amt)continue;
+  const p=draft.length>1?'Line '+(i+1)+': ':'';
+  if(!d.date||!d.payee||!d.dr||!d.cr||!(amt>0))return toast(p+'fill date, payer/payee, both classes and an amount above 0');
+  if(d.dr==d.cr)return toast(p+'debit and credit classes must be different');
+  recs.push({date:d.date,payee:d.payee,doc:d.doc,desc:d.desc,dr:d.dr,cr:d.cr,amt})}
+ if(!recs.length)return toast('Nothing to post. Fill in at least one line');
+ if(editId)Object.assign(db.tx.find(x=>x.id==editId),recs[0],{eb:me.n,ea:now});
+ else recs.forEach((r,i)=>db.tx.push({id:Date.now()+i,...r,by:me.n,at:now}));
+ save();toast(editId?'Changes saved':recs.length+(recs.length>1?' transactions posted':' transaction posted'));editId=null;draft=null;render()}
+const edit=id=>{editId=id;draft=null;view='Dashboard';render();scrollTo(0,0)};
+
+/* ---------- tables & views ---------- */
+const F={},getF=v=>F[v]||(F[v]={}),isF=v=>Object.values(getF(v)).some(Boolean);
+function filt(l,v){const f=getF(v),lc=x=>String(x||'').toLowerCase();
+ return l.filter(t=>(!f.from||t.date>=f.from)&&(!f.to||t.date<=f.to)&&(!f.payee||lc(t.payee).includes(lc(f.payee)))&&(!f.doc||lc(t.doc).includes(lc(f.doc)))
+ &&(f.min===undefined||f.min===''||t.amt>=+f.min)&&(f.max===undefined||f.max===''||t.amt<=+f.max)&&(!f.cls||t.dr==f.cls||t.cr==f.cls))}
+function setF(k,val){getF(view)[k]=val;view=='Financial Reports'?render():$('#txbox').innerHTML=txbox()}
+const clearF=()=>{if(view=='Dashboard'&&draft)grab();F[view]={};render();toast('Filters cleared')};
+function fbar(keys,yrs=[]){const f=getF(view),i=(k,lab,type='text',x='')=>`<label>${lab}<input type="${type}" ${x} value="${esc(f[k])}" oninput="setF('${k}',this.value)"></label>`;
+ return `<div class="fb">${keys.map(k=>({date:()=>i('from','Date from','date')+i('to','Date to','date'),payee:()=>i('payee','Payer/Payee','text','list="pl"'),doc:()=>i('doc','Doc No.'),
+ amt:()=>i('min','Amount min','number','step="0.01"')+i('max','Amount max','number','step="0.01"'),
+ year:()=>`<label>Year<select onchange="setF('year',this.value)">${yrs.map(y=>`<option ${(f.year||String(new Date().getFullYear()))==y?'selected':''}>${y}</option>`).join('')}</select></label>`,
+ cls:()=>`<label>Class<select onchange="setF('cls',this.value)"><option value="">All classes</option>${db.classes.map(x=>`<option ${f.cls==x.n?'selected':''}>${esc(x.n)}</option>`).join('')}</select></label>`}[k]())).join('')}
+ <button class="g" onclick="clearF()">&#10005; Clear filters</button></div><datalist id="pl">${db.payees.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>`}
+function txbox(){let l=db.tx;if(CATS.includes(view))l=l.filter(t=>inCat(t,view));
+ const f=filt(l,view),show=view=='Dashboard'&&!isF(view)?f.slice(-10):f;
+ return `<p class="sm">${view=='Dashboard'&&!isF(view)?'Showing the last 10 transactions. Use the filters to search all.':`${f.length} of ${l.length} transactions`+(f.length?' · total amount '+fmt(f.reduce((a,t)=>a+t.amt,0)):'')}</p>`+txTable(show.slice().reverse())}
+function txTable(l){
+ if(!l.length)return '<p class="sm">No transactions yet.</p>';
+ return `<div class="w"><table><tr><th>Date</th><th>Doc No.</th><th>Payer/Payee</th><th>Description</th><th>Debit class</th><th>Credit class</th><th class="n">Amount</th><th>Recorded by</th><th></th></tr>
+ ${l.map(t=>`<tr><td>${t.date}</td><td>${esc(t.doc)}</td><td>${esc(t.payee)}</td><td>${esc(t.desc)}</td><td class="cr">${esc(t.dr)}</td><td class="dr">${esc(t.cr)}</td><td class="n">${fmt(t.amt)}</td>
+ <td>${esc(t.by)}<div class="sm">${when(t.at)}</div>${t.eb?`<div class="sm">Edited: ${esc(t.eb)}, ${when(t.ea)}</div>`:''}</td>
+ <td><button class="s" onclick="edit(${t.id})">Edit</button></td></tr>`).join('')}</table></div>`}
+const exBar=(k)=>`<div class="bar"><span class="sm">Export:</span><button class="s" onclick="exp('xls','${k}').catch(e=>toast('Export failed: '+e.message))">Excel</button><button class="s" onclick="exp('csv','${k}').catch(e=>toast('Export failed: '+e.message))">CSV</button><button class="s" onclick="exp('pdf','${k}').catch(e=>toast('Export failed: '+e.message))">PDF</button></div>`;
+function catView(c){
+ const k=db.classes.filter(x=>x.c==c);
+ return `<div class="card"><h2>${c}</h2><div class="w"><table><tr><th>Class</th><th class="n">Total</th></tr>
+ ${k.map(x=>`<tr><td>${esc(x.n)}</td><td class="n">${fmt(classTotal(x.n))}</td></tr>`).join('')}<tr class="t"><td>Total ${c}</td><td class="n">${fmt(catTotal(c))}</td></tr></table></div></div>
+ <div class="card"><h3>Transactions</h3>${exBar(c)}${fbar(['date','doc','payee','amt'])}<div id="txbox">${txbox()}</div></div>`}
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const tot=a=>a.reduce((x,y)=>x+y,0),sub=(a,b)=>a.map((v,i)=>v-b[i]),add=(a,b)=>a.map((v,i)=>v+b[i]);
+function stmts(Y,cls){
+ const show=x=>!cls||x.n==cls,Z=()=>Array(12).fill(0),inc=[],pos=[];
+ const mv=n=>{const a=Z();db.tx.forEach(t=>{if(t.date.slice(0,4)!=Y)return;const m=+t.date.slice(5,7)-1;if(t.dr==n)a[m]+=t.amt;if(t.cr==n)a[m]-=t.amt});return a};
+ const sect=(cat,sg)=>{let S=Z();inc.push({t:'h',l:cat});db.classes.filter(x=>x.c==cat&&show(x)).forEach(x=>{const a=mv(x.n).map(v=>v*sg);S=add(S,a);inc.push({t:'r',l:x.n,a})});inc.push({t:'t',l:'Total '+cat,a:S});return S};
+ const R=sect('Revenue',-1),D=sect('Direct Costs',1),GP=sub(R,D);if(!cls)inc.push({t:'t',l:'Gross Profit',a:GP});
+ const E=sect('Expense',1);if(!cls)inc.push({t:'t',l:'Net Profit for the Year',a:sub(GP,E)});
+ const upto=n=>db.tx.reduce((a,t)=>t.date<=Y+'-12-31'?a+(t.dr==n?t.amt:0)-(t.cr==n?t.amt:0):a,0);
+ const part=(cat,sg,extra)=>{let T=0;pos.push({t:'h',l:cat});db.classes.filter(x=>x.c==cat&&show(x)).forEach(x=>{const v=sg*upto(x.n);T+=v;pos.push({t:'r',l:x.n,v})});
+  if(extra!=null){T+=extra;pos.push({t:'r',l:'Retained earnings (net profit to date)',v:extra})}pos.push({t:'t',l:'Total '+cat,v:T});return T};
+ const RE=cls?null:-db.classes.filter(x=>['Revenue','Direct Costs','Expense'].includes(x.c)).reduce((a,x)=>a+upto(x.n),0);
+ const A=part('Assets',1),Q=part('Equity',-1,RE),L=part('Liabilities',-1);
+ pos.push({t:'t',l:'Total Equity and Liabilities',v:Q+L});if(!cls)pos.push({t:'n',l:'Difference (Assets less Equity and Liabilities; should be 0.00)',v:A-Q-L});
+ return{inc,pos}}
+const nc=v=>`<td class="n ${v<0?'dr':''}">${Math.abs(v)>=0.005?fmt(v):'–'}</td>`;
+const incHtml=S=>`<table class="stmt"><tr><th>Account</th>${MON.map(m=>`<th class="n">${m}</th>`).join('')}<th class="n">Total</th></tr>${S.inc.map(r=>r.t=='h'?`<tr class="h"><td colspan="14">${r.l}</td></tr>`:`<tr class="${r.t=='t'?'t':''}"><td>${r.t=='r'?'&nbsp;&nbsp;':''}${esc(r.l)}</td>${r.a.map(nc).join('')}${nc(tot(r.a))}</tr>`).join('')}</table>`;
+const posHtml=S=>`<table style="max-width:560px"><tr><th>Account</th><th class="n">Amount</th></tr>${S.pos.map(r=>r.t=='h'?`<tr class="h"><td colspan="2">${r.l}</td></tr>`:`<tr class="${r.t=='t'?'t':''}"><td>${r.t=='r'?'&nbsp;&nbsp;':''}${r.t=='n'?`<span class="sm">${esc(r.l)}</span>`:esc(r.l)}</td>${nc(r.v)}</tr>`).join('')}</table>`;
+const exSt=`<div class="bar"><span class="sm">Export statements (selected year):</span><button class="s" onclick="expStmt('xls').catch(e=>toast('Export failed: '+e.message))">Excel</button><button class="s" onclick="expStmt('pdf').catch(e=>toast('Export failed: '+e.message))">PDF</button></div>`;
+function fin(){
+ const f=getF(view),Y=f.year||String(new Date().getFullYear()),S=stmts(Y,f.cls);
+ const yrs=[...new Set([String(new Date().getFullYear()),Y,...db.tx.map(t=>t.date.slice(0,4))])].sort().reverse();
+ return `<div class="card"><h2>Financial Reports</h2><p class="sm">Figures update automatically with every posted or edited transaction.</p>${fbar(['year','cls'],yrs)}${exSt}${exBar('All').replace('Export:','Export all transactions:')}</div>
+ <div class="card"><h3>Statement of Comprehensive Income</h3><p class="sm">For the year ended 31 December ${Y}. Revenue is shown as credits less debits; Direct Costs and Expenses as debits less credits.</p><div class="w">${incHtml(S)}</div></div>
+ <div class="card"><h3>Statement of Financial Position</h3><p class="sm">As at 31 December ${Y} (cumulative balances to that date).</p><div class="w">${posHtml(S)}</div></div>
+ ${f.cls?`<div class="card"><h3>Transactions – ${esc(f.cls)}</h3><div id="txbox">${txbox()}</div></div>`:''}`}
+
+/* ---------- projects, HR, approvals ---------- */
+const RQ={Projects:1,HR:1,Finance:1},RE={Projects:null,HR:null,Finance:null},ptf={no:'',name:'',cl:''},hf={no:'',name:'',phone:''};let ptEd=null;
+const cap=s=>s[0].toUpperCase()+s.slice(1),pad=(p,n)=>p+String(n).padStart(3,'0'),now=()=>new Date().toISOString(),r2=x=>Math.round(x*100)/100;
+const lc=x=>String(x||'').toLowerCase(),has=(a,b)=>lc(a).includes(lc(b));
+const can=g=>me.role=='admin'||me.role==(g=='directors'?'director':'finance');
+const rst=r=>r.to.some(g=>r.ap[g].s=='Rejected')?'Rejected':r.to.every(g=>r.ap[g].s=='Approved')?'Approved':'Pending';
+function serial(seq,pre,list,key,commit){let n=db[seq]+1;while(list.some(x=>x[key]==pad(pre,n)))n++;if(commit)db[seq]=n;return pad(pre,n)}
+const so=(id,items,lab,kind,sv)=>`<select id="${id}" ${kind?`onchange="addNew(this,'${kind}')"`:''}><option value="">${lab}</option>${items.map(([v,t])=>`<option value="${esc(v)}"${v==sv&&sv!==''?' selected':''}>${esc(t)}</option>`).join('')}${kind?'<option value="__new">+ Add new…</option>':''}</select>`;
+const pOpts=()=>db.projects.map(p=>[p.id,p.no+' – '+p.name]),pLabel=id=>{const p=db.projects.find(x=>x.id==id);return p?p.no+' – '+p.name:'—'};
+const stamp=(by,at,eb,ea)=>`${esc(by)}<div class="sm">${when(at)}</div>${eb?`<div class="sm">Edited: ${esc(eb)}, ${when(ea)}</div>`:''}`;
+const pSum=p=>{const l=db.ptx.filter(t=>t.pid==p.id),s=ty=>tot(l.filter(t=>t.type==ty).map(t=>t.amt)),i=s('Inflow'),o=s('Outflow');return{p,i,o,n:i-o}};
+function addNew(el,kind){
+ if(el.value!='__new')return;
+ const n=(prompt(kind=='p'?'New project name':kind=='d'?'New department name':kind=='c'?'New client name':'New payer/payee name')||'').trim();
+ if(!n){el.value='';return}
+ let v=n;
+ if(kind=='p'){let p=db.projects.find(x=>x.name.toLowerCase()==n.toLowerCase());if(!p){p={id:'p'+Date.now(),no:serial('prjSeq','PRJ-',db.projects,'no',true),name:n,client:'',value:0,vat:0,wht:0,net:0,start:today(),status:'Active',by:me.n,at:now()};db.projects.push(p)}v=p.id}
+ else if(kind=='d'){if(!db.depts.includes(n))db.depts.push(n)}
+ else if(kind=='c'){if(!db.clients.includes(n))db.clients.push(n)}
+ else if(!db.payees.includes(n))db.payees.push(n);
+ save();el.insertAdjacentHTML('beforeend',`<option value="${esc(v)}"></option>`);el.value=v;render()}
+function exportTbl(kind,name,title,cols,rows,W){
+ const co=db.co.name||'Ledger',fn=co+'-'+name+'-'+today();
+ if(kind=='pdf')return pdfDoc(fn,title,`<table><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>${rows.map(r=>'<tr>'+r.map(v=>`<td${typeof v=='number'?' class="n"':''}>${typeof v=='number'?fmt(v):esc(v)}</td>`).join('')+'</tr>').join('')}</table>`);
+ return xlsxBook([{name:name.slice(0,31),W,rows:[...hdr(2,[co,title,'Exported by '+me.n+', '+when(new Date())]),{c:[]},{c:cols,st:'b'},...rows.map(c=>({c}))]}],fn+'.xlsx')}
+const exB=(f)=>`<div class="bar"><span class="sm">Export:</span><button class="s" onclick="${f}('xls').catch(e=>toast('Export failed: '+e.message))">Excel</button><button class="s" onclick="${f}('pdf').catch(e=>toast('Export failed: '+e.message))">PDF</button></div>`;
+/* project summary & budget approval */
+function sumTbl(){
+ const L=db.projects.map(pSum);if(!L.length)return'<p class="sm">No projects yet.</p>';
+ const I=tot(L.map(x=>x.i)),O=tot(L.map(x=>x.o));
+ return `<div class="w"><table><tr><th>Project no.</th><th>Project</th><th>Client</th><th>Status</th><th class="n">Net value</th><th class="n">Approved budget</th><th class="n">Inflows</th><th class="n">Outflows</th><th class="n">Net balance</th></tr>
+ ${L.map(x=>`<tr><td>${esc(x.p.no)}</td><td>${esc(x.p.name)}</td><td>${esc(x.p.client)}</td><td>${esc(x.p.status)}</td><td class="n">${fmt(x.p.net)}</td><td class="n">${fmt(tot(db.buds.filter(b=>b.pid==x.p.id&&b.bs=='Approved').map(b=>b.total)))}</td><td class="n cr">${fmt(x.i)}</td><td class="n dr">${fmt(x.o)}</td><td class="n ${x.n<0?'dr':''}">${fmt(x.n)}</td></tr>`).join('')}
+ <tr class="t"><td colspan="6">Total (all projects)</td><td class="n">${fmt(I)}</td><td class="n">${fmt(O)}</td><td class="n ${I-O<0?'dr':''}">${fmt(I-O)}</td></tr></table></div>`}
+function decideBud(id,s){
+ const b=db.buds.find(x=>x.id==id);if(!b||!can('directors')||b.bs!='Pending')return toast('Not allowed');
+ let note='';if(s=='Rejected'){note=prompt('Reason for rejecting (optional)');if(note===null)return}
+ Object.assign(b,{bs:s,bby:me.n,bat:now(),bnote:(note||'').trim()});save();toast('Budget '+s.toLowerCase());render()}
+/* requests */
+const canEditReq=r=>rst(r)!='Approved'&&(r.by==me.n||me.role=='admin');
+function reqTbl(l,g,ed){
+ if(!l.length)return'<p class="sm">None.</p>';
+ return `<div class="w"><table><tr><th>Request no.</th><th>Date</th><th>From</th><th>Payer/Payee</th><th>Project</th><th>Description</th><th class="n">Amount</th><th>Sent by</th><th>Status</th><th></th></tr>
+ ${l.slice().reverse().map(r=>`<tr><td>${esc(r.no)}</td><td>${r.date}</td><td>${r.src}</td><td>${esc(r.payee)}</td><td>${r.pid?esc(pLabel(r.pid)):'—'}</td>
+ <td>${r.items.map(i=>`${esc(i.d)} <span class="sm">(${fmt(i.a)})</span>`).join('<br>')}</td><td class="n">${fmt(r.amt)}</td><td>${stamp(r.by,r.at,r.eb,r.ea)}</td>
+ <td>${r.to.map(x=>{const a=r.ap[x];return `${cap(x)}: <b class="${a.s=='Approved'?'cr':a.s=='Rejected'?'dr':''}">${a.s}</b>${a.by?`<div class="sm">${esc(a.by)}, ${when(a.at)}${a.note?' – '+esc(a.note):''}</div>`:''}`}).join('<br>')}</td>
+ <td><button class="s" onclick="reqPdf(${r.id})">PDF</button>${g&&r.ap[g]&&r.ap[g].s=='Pending'&&rst(r)=='Pending'?(can(g)?` <button class="s" onclick="decide(${r.id},'${g}','Approved')">Approve</button> <button class="g" onclick="decide(${r.id},'${g}','Rejected')">Reject</button>`:' <span class="sm">No permission</span>'):''}${ed&&canEditReq(r)?` <button class="g" onclick="editReq(${r.id})">Edit</button>`:''}${rst(r)=='Approved'?'<div class="sm">Locked</div>':''}</td></tr>`).join('')}</table></div>`}
+function decide(id,g,s){
+ const r=db.reqs.find(x=>x.id==id);if(!r||!can(g)||rst(r)!='Pending')return toast('Not allowed');
+ let note='';if(s=='Rejected'){note=prompt('Reason for rejecting (optional)');if(note===null)return}
+ r.ap[g]={s,by:me.n,at:now(),note:(note||'').trim()};save();toast('Request '+s.toLowerCase());render()}
+function reqPdf(id){
+ const r=db.reqs.find(x=>x.id==id);if(!r)return;
+ pdfDoc('Payment-Request-'+r.no,'Payment request '+r.no,`<table><tr><th>Payment request no.</th><td>${esc(r.no)}</td><th>Date</th><td>${r.date}</td></tr><tr><th>Payer / Payee</th><td>${esc(r.payee)}</td><th>Project</th><td>${r.pid?esc(pLabel(r.pid)):'—'}</td></tr>
+ <tr><th>Department</th><td>${r.src}</td><th>Status</th><td>${rst(r)}</td></tr><tr><th>Prepared by</th><td>${esc(r.by)}</td><th>Timestamp</th><td>${esc(when(r.at))}</td></tr>${r.eb?`<tr><th>Last edited by</th><td>${esc(r.eb)}</td><th>Edited at</th><td>${esc(when(r.ea))}</td></tr>`:''}</table>
+ <h3>Description of payment</h3><table><tr><th>#</th><th>Description</th><th class="n">Amount</th></tr>${r.items.map((i,k)=>`<tr><td>${k+1}</td><td>${esc(i.d)}</td><td class="n">${fmt(i.a)}</td></tr>`).join('')}<tr class="t"><td></td><td>Total</td><td class="n">${fmt(r.amt)}</td></tr></table>
+ <h3>Approvals</h3><table><tr><th>Approver</th><th>Decision</th><th>Name</th><th>Timestamp</th><th>Note</th></tr>${r.to.map(g=>{const a=r.ap[g];return `<tr><td>${cap(g)}</td><td>${a.s}</td><td>${esc(a.by||'')}</td><td>${esc(a.at?when(a.at):'')}</td><td>${esc(a.note||'')}</td></tr>`}).join('')}</table>`)}
+async function expApr(kind){
+ const l=db.reqs.filter(r=>rst(r)=='Approved');
+ return exportTbl(kind,'Approved-requests','Approved payment requests',['Request no.','Date','From','Payer/Payee','Project','Description','Amount','Sent by','Sent at','Approvals'],
+  l.map(r=>[r.no,r.date,r.src,r.payee,r.pid?pLabel(r.pid):'',r.items.map(i=>i.d+' ('+fmt(i.a)+')').join('; '),r.amt,r.by,when(r.at),r.to.map(g=>cap(g)+': '+r.ap[g].by+', '+when(r.ap[g].at)).join(' | ')]),[14,12,10,22,26,40,14,18,20,50])}
+const itemRow=(k,i,it)=>`<div class="fb" style="grid-template-columns:3fr 1fr"><label>Description ${i+1}<input id="${k}_d${i}" value="${it?esc(it.d):''}"></label><label>Amount<input id="${k}_a${i}" type="number" min="0" step="0.01" value="${it?it.a:''}" oninput="rqTot('${k}')"></label></div>`;
+function rqTot(k){const e=$('#'+k+'_tot');if(e)e.textContent=fmt(tot([...document.querySelectorAll('[id^="'+k+'_a"]')].map(x=>parseFloat(x.value)||0)))}
+function addItem(src){const k='q'+src;RQ[src]++;$('#'+k+'_items').insertAdjacentHTML('beforeend',itemRow(k,RQ[src]-1))}
+function reqForm(src){
+ const k='q'+src,e=RE[src]&&db.reqs.find(x=>x.id==RE[src]),it=e?e.items:[];
+ return `<div class="card"><h3>${e?'Edit request '+esc(e.no):'Send approval request to '+(src=='HR'?'directors and finance':'directors')}</h3>
+ <div class="grid"><label>Payment request number (serial)<input id="${k}_no" value="${e?esc(e.no):serial('reqSeq','PR-',db.reqs,'no')}" readonly></label><label>Date<input id="${k}_date" type="date" value="${e?e.date:today()}"></label>
+ <label>Payer / Payee${so(k+'_pe',db.payees.map(p=>[p,p]),'Select','n',e?e.payee:'')}</label><label>Project${so(k+'_pj',pOpts(),src=='Projects'?'Select':'None / general','p',e?e.pid:'')}</label></div>
+ <div id="${k}_items">${Array.from({length:RQ[src]},(_,i)=>itemRow(k,i,it[i])).join('')}</div>
+ <div class="bar"><button class="g" onclick="addItem('${src}')">+ Add another description</button><span class="sm">Total: <b id="${k}_tot">0.00</b></span></div>
+ <p class="sm">Your name (${esc(me.n)}) and the time are stamped on the request when it is sent.${e?' Editing resets any earlier decisions.':''}</p>
+ <p><button onclick="sendReq('${src}')">${e?'Update and resubmit':'Send request'}</button>${e?` <button class="g" onclick="RE['${src}']=null;RQ['${src}']=1;render(true)">Cancel edit</button>`:''}</p></div>`}
+function editReq(id){
+ const r=db.reqs.find(x=>x.id==id);if(!r||!canEditReq(r))return toast('This request cannot be edited');
+ if(r.src=='HR')SEC['Human Resources']='Approval request';if(r.src=='Projects')SEC.Projects='Payment request';RE[r.src]=id;RQ[r.src]=r.items.length;view=r.src=='HR'?'Human Resources':r.src=='Finance'?'Request to Directors':'Projects';render(true);$('#q'+r.src+'_no').scrollIntoView()}
+function sendReq(src){
+ const k='q'+src,v=i=>($('#'+k+'_'+i)||{}).value||'',e=RE[src]&&db.reqs.find(x=>x.id==RE[src]);
+ const date=v('date'),pe=v('pe'),pj=v('pj'),items=[];
+ for(let i=0;i<RQ[src];i++){const d=v('d'+i).trim(),a=parseFloat(v('a'+i));if(d||a)items.push({d,a})}
+ if(!date||!pe||(src=='Projects'&&!pj))return toast('Fill in date, payer/payee'+(src=='Projects'?' and project':''));
+ if(!items.length||items.some(x=>!x.d||!(x.a>0)))return toast('Each description needs text and an amount above 0');
+ const amt=tot(items.map(x=>x.a));
+ if(e){if(!canEditReq(e))return toast('This request cannot be edited');
+  Object.assign(e,{date,payee:pe,pid:pj,items,amt,eb:me.n,ea:now()});e.to.forEach(g=>e.ap[g]={s:'Pending'});RE[src]=null}
+ else{const to=src=='HR'?['directors','finance']:['directors'],ap={};to.forEach(g=>ap[g]={s:'Pending'});
+  db.reqs.push({id:Date.now(),no:serial('reqSeq','PR-',db.reqs,'no',true),date,payee:pe,pid:pj,items,amt,src,to,ap,by:me.n,at:now()})}
+ save();RQ[src]=1;toast(e?'Request updated and resubmitted':'Request sent');render(true)}
+/* Projects */
+function pCalc(){const g=i=>$('#'+i);if(!g('p_v'))return;const v=parseFloat(g('p_v').value)||0,va=g('p_vt').value=='1'?v*.075:0,wa=v*(parseFloat(g('p_w').value)||0)/100;g('p_va').value=fmt(va);g('p_wa').value=fmt(wa);g('p_nv').value=fmt(v+va-wa)}
+const ptList=()=>db.ptx.filter(t=>{const p=db.projects.find(x=>x.id==t.pid)||{};return has(p.no,ptf.no)&&has(p.name,ptf.name)&&has(p.client,ptf.cl)}).slice().reverse();
+const ptRow=t=>{const p=db.projects.find(x=>x.id==t.pid)||{};return[t.date,p.no||'',p.name||'',p.client||'',t.type,t.payee,t.doc,t.desc,t.amt,t.by,when(t.at),t.eb||'',when(t.ea)]};
+function ptBox(){
+ const l=ptList();if(!l.length)return'<p class="sm">No project transactions found.</p>';
+ return `<p class="sm">${l.length} transaction(s) · inflows ${fmt(tot(l.filter(t=>t.type=='Inflow').map(t=>t.amt)))} · outflows ${fmt(tot(l.filter(t=>t.type=='Outflow').map(t=>t.amt)))}. Transactions can be edited but not deleted.</p>
+ <div class="w"><table><tr><th>Date</th><th>Project no.</th><th>Project</th><th>Client</th><th>Type</th><th>Payer/Payee</th><th>Doc No.</th><th>Description</th><th class="n">Amount</th><th>Recorded by</th><th></th></tr>
+ ${l.map(t=>{const p=db.projects.find(x=>x.id==t.pid)||{};return `<tr><td>${t.date}</td><td>${esc(p.no)}</td><td>${esc(p.name)}</td><td>${esc(p.client)}</td><td class="${t.type=='Inflow'?'cr':'dr'}">${t.type}</td><td>${esc(t.payee)}</td><td>${esc(t.doc)}</td><td>${esc(t.desc)}</td><td class="n">${fmt(t.amt)}</td><td>${stamp(t.by,t.at,t.eb,t.ea)}</td><td><button class="s" onclick="editPtx(${t.id})">Edit</button></td></tr>`}).join('')}</table></div>`}
+const setPf=(k,v)=>{ptf[k]=v;$('#ptbox').innerHTML=ptBox()};
+const clearPf=()=>{ptf.no=ptf.name=ptf.cl='';render()};
+const expPtx=async k=>exportTbl(k,'Project-transactions','Project transactions',['Date','Project no.','Project','Client','Type','Payer/Payee','Doc No.','Description','Amount','Recorded by','Recorded at','Edited by','Edited at'],ptList().map(ptRow),[12,12,26,22,10,22,14,30,14,18,20,18,20]);
+const editPtx=id=>{SEC.Projects='Transactions';ptEd=id;render(true);$('#p_tp').scrollIntoView()};
+function projView(){
+ const t=ptEd?db.ptx.find(x=>x.id==ptEd):null;if(ptEd&&!t)ptEd=null;
+ const fi=(k,lab,key)=>`<label>${lab}<input value="${esc(ptf[key])}" oninput="setPf('${key}',this.value)"></label>`;
+ return `<!--S:Summary--><div class="card"><h2>Projects summary</h2>${sumTbl()}</div>
+ <!--S:Add project--><div class="card"><h3>Add project</h3><div class="grid"><label>Project number<input id="p_no" value="${serial('prjSeq','PRJ-',db.projects,'no')}"></label><label>Client / sponsor<input id="p_c"></label><label>Project name / description<input id="p_n"></label>
+ <label>Project value<input id="p_v" type="number" min="0" step="0.01" oninput="pCalc()"></label><label>VAT (7.5%)<select id="p_vt" onchange="pCalc()"><option value="0">Not applicable</option><option value="1">Applicable</option></select></label><label>VAT amount<input id="p_va" readonly></label>
+ <label>WHT<select id="p_w" onchange="pCalc()"><option value="0">Not applicable</option><option value="2">2%</option><option value="2.5">2.5%</option><option value="5">5%</option><option value="10">10%</option></select></label><label>WHT amount<input id="p_wa" readonly></label><label>Net project value<input id="p_nv" readonly></label>
+ <label>Start date<input id="p_s" type="date" value="${today()}"></label><label>Status<select id="p_t"><option>Active</option><option>On hold</option><option>Completed</option></select></label></div>
+ <p class="sm">Net value = project value + VAT − WHT. The project number is suggested in sequence and must be unique. To get a budget approved, send a budget form from the Project budget section.</p><p><button onclick="addProj()">Add project</button></p></div>
+ <!--S:Project budget-->${bgForm()}
+ <!--S:Project budget--><div class="card"><h3>Project budget forms sent</h3>${bgTbl(db.buds)}</div>
+ <!--S:Transactions--><div class="card"><h3>${t?'Edit project transaction':'Record project transaction'}</h3><div class="grid"><label>Project${so('p_tp',pOpts(),'Select',null,t?t.pid:'')}</label><label>Date<input id="p_td" type="date" value="${t?t.date:today()}"></label>
+ <label>Type<select id="p_ty">${['Inflow','Outflow'].map(x=>`<option ${t&&t.type==x?'selected':''}>${x}</option>`).join('')}</select></label><label>Payer / Payee${so('p_tn',db.payees.map(p=>[p,p]),'Select','n',t?t.payee:'')}</label>
+ <label>Doc No.<input id="p_tr" value="${t?esc(t.doc):''}"></label><label>Description<input id="p_te" value="${t?esc(t.desc):''}"></label><label>Amount<input id="p_ta" type="number" min="0" step="0.01" value="${t?t.amt:''}"></label></div>
+ <p class="sm">Your name and the time are stamped on every transaction. Transactions cannot be deleted.</p><p><button onclick="addPtx()">${t?'Save changes':'Record transaction'}</button>${t?' <button class="g" onclick="ptEd=null;render(true)">Cancel</button>':''}</p></div>
+ <!--S:Payment request-->${reqForm('Projects')}
+ <!--S:Project report-->${repForm()}
+ <!--S:Transactions--><div class="card"><h3>Project transactions</h3><div class="fb">${fi('','Project number','no')}${fi('','Project name','name')}${fi('','Client','cl')}<button class="g" onclick="clearPf()">&#10005; Clear filters</button></div>${exB('expPtx')}<div id="ptbox">${ptBox()}</div></div>
+ <!--S:Payment request--><div class="card"><h3>Requests sent from Projects</h3>${reqTbl(db.reqs.filter(r=>r.src=='Projects'),null,true)}</div>
+ <!--S:Project report--><div class="card"><h3>Project reports sent</h3>${repTbl(db.reps)}</div>`}
+function addProj(){
+ const no=$('#p_no').value.trim(),n=$('#p_n').value.trim(),c=$('#p_c').value.trim(),v=parseFloat($('#p_v').value);
+ if(!no||!n||!c||!(v>0))return toast('Enter project number, client, name/description and a value above 0');
+ if(db.projects.some(p=>p.no.toLowerCase()==no.toLowerCase()))return toast('That project number already exists');
+ const vat=r2($('#p_vt').value=='1'?v*.075:0),wr=parseFloat($('#p_w').value)||0,wht=r2(v*wr/100);
+ db.projects.push({id:'p'+Date.now(),no,client:c,name:n,value:v,vat,whtRate:wr,wht,net:r2(v+vat-wht),start:$('#p_s').value,status:$('#p_t').value,by:me.n,at:now()});
+ save();toast('Project added');['p_c','p_n','p_v'].forEach(i=>$('#'+i).value='');$('#p_vt').value=$('#p_w').value='0';$('#p_no').value=serial('prjSeq','PRJ-',db.projects,'no');render()}
+function addPtx(){
+ const pid=$('#p_tp').value,date=$('#p_td').value,pe=$('#p_tn').value,amt=parseFloat($('#p_ta').value);
+ if(!pid||!date||!pe||!(amt>0))return toast('Select project, date, payer/payee and an amount above 0');
+ const d={pid,date,type:$('#p_ty').value,payee:pe,doc:$('#p_tr').value.trim(),desc:$('#p_te').value.trim(),amt};
+ if(ptEd){Object.assign(db.ptx.find(x=>x.id==ptEd),d,{eb:me.n,ea:now()});ptEd=null;save();toast('Changes saved');return render(true)}
+ db.ptx.push({id:Date.now(),...d,by:me.n,at:now()});save();toast('Transaction recorded');['p_tr','p_te','p_ta'].forEach(i=>$('#'+i).value='');render()}
+/* signature pad */
+function initSig(){document.querySelectorAll('#app canvas').forEach(c=>{const x=c.getContext('2d');x.lineWidth=2;x.lineCap='round';x.strokeStyle='#12304a';let dn=false;
+ const pt=e=>{const r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]};
+ c.onpointerdown=e=>{dn=true;c._d=1;c.setPointerCapture(e.pointerId);const[a,b]=pt(e);x.beginPath();x.moveTo(a,b);x.lineTo(a+.1,b+.1);x.stroke()};
+ c.onpointermove=e=>{if(!dn)return;const[a,b]=pt(e);x.lineTo(a,b);x.stroke()};
+ c.onpointerup=c.onpointercancel=()=>{dn=false}})}
+const sigPad=id=>`<div style="margin:8px 0"><canvas id="${id}" width="420" height="120" style="border:1px solid var(--rule);border-radius:6px;background:#fff;touch-action:none;max-width:100%;cursor:crosshair"></canvas><div><button class="g" type="button" onclick="sigClear('${id}')">Clear signature</button></div></div>`;
+const sigClear=id=>{const c=$('#'+id);c.getContext('2d').clearRect(0,0,c.width,c.height);c._d=0};
+const sigData=id=>{const c=$('#'+id);return c&&c._d?c.toDataURL('image/png'):''};
+/* invoices (Finance and Accounts) */
+let INVN=1;
+const clOpts=()=>[...new Set([...db.clients,...db.projects.map(p=>p.client).filter(Boolean)])].map(c=>[c,c]);
+const invRow=i=>`<div class="fb" style="grid-template-columns:3fr 1fr"><label>Description ${i+1}<input id="iv_d${i}"></label><label>Amount<input id="iv_a${i}" type="number" min="0" step="0.01" oninput="invCalc()"></label></div>`;
+const addInvLine=()=>{INVN++;$('#iv_items').insertAdjacentHTML('beforeend',invRow(INVN-1))};
+function invCalc(){const g=i=>$('#'+i);if(!g('iv_sub'))return;const s=tot([...document.querySelectorAll('[id^="iv_a"]')].map(x=>parseFloat(x.value)||0)),va=g('iv_vt').value=='1'?s*.075:0,wa=s*(parseFloat(g('iv_w').value)||0)/100;g('iv_sub').value=fmt(s);g('iv_va').value=fmt(va);g('iv_wa').value=fmt(wa);g('iv_net').value=fmt(s+va-wa)}
+function invView(){
+ const L=db.inv.slice().reverse();
+ return `<div class="card"><h2>Issue invoice</h2><div class="grid"><label>Date of invoice<input id="iv_d" type="date" value="${today()}"></label><label>Invoice no (serial)<input id="iv_no" value="${serial('invSeq','INV-',db.inv,'no')}" readonly></label>
+ <label>Client${so('iv_c',clOpts(),'Select','c','')}</label><label>Project${so('iv_p',pOpts(),'None / general','p','')}</label><label>Revenue account<select id="iv_rv">${(()=>{const r=db.classes.filter(x=>x.c=='Revenue').map(x=>x.n);if(!r.length)r.push('Sales');return r.map(n=>`<option>${esc(n)}</option>`).join('')})()}</select></label></div>
+ <div id="iv_items">${Array.from({length:INVN},(_,i)=>invRow(i)).join('')}</div>
+ <div class="bar"><button class="g" onclick="addInvLine()">+ Add another line</button></div>
+ <div class="grid"><label>Subtotal<input id="iv_sub" readonly></label><label>VAT (7.5%)<select id="iv_vt" onchange="invCalc()"><option value="0">Not applicable</option><option value="1">Applicable</option></select></label><label>VAT amount<input id="iv_va" readonly></label>
+ <label>WHT rate<select id="iv_w" onchange="invCalc()"><option value="0">Not applicable</option><option value="2">2%</option><option value="2.5">2.5%</option><option value="5">5%</option><option value="10">10%</option></select></label><label>WHT amount<input id="iv_wa" readonly></label><label>Net total amount<input id="iv_net" readonly></label></div>
+ <b>Signature</b>${sigPad('sg_inv')}
+ <p class="sm">Net total = subtotal + VAT − WHT (WHT is calculated on the subtotal). Your name and the time are stamped when the invoice is issued. Issued invoices cannot be edited or deleted. Issuing posts to the ledger: Dr Accounts Receivable / Cr Revenue (subtotal); Cr VAT Payable (VAT); Dr WHT Receivable / Cr Accounts Receivable (WHT).</p><p><button onclick="issueInv()">Issue invoice</button></p></div>
+ <div class="card"><h3>Invoices issued</h3>${L.length?`<div class="w"><table><tr><th>Invoice no.</th><th>Date</th><th>Client</th><th>Project</th><th class="n">Subtotal</th><th class="n">VAT</th><th class="n">WHT</th><th class="n">Net total</th><th>Issued by</th><th>Ledger</th><th></th></tr>
+ ${L.map(i=>`<tr><td>${esc(i.no)}</td><td>${i.date}</td><td>${esc(i.client)}</td><td>${i.pid?esc(pLabel(i.pid)):'—'}</td><td class="n">${fmt(i.sub)}</td><td class="n">${fmt(i.vat)}</td><td class="n">${fmt(i.wht)}</td><td class="n">${fmt(i.net)}</td><td>${stamp(i.by,i.at)}</td><td>${i.led?'<span class="cr">Posted</span>':`<button class="g" onclick="postInvNow(${i.id})">Post to ledger</button>`}</td><td><button class="s" onclick="invPdf(${i.id})">PDF</button></td></tr>`).join('')}</table></div>`:'<p class="sm">No invoices issued yet.</p>'}</div>`}
+function postInv(i){
+ const need=(n,c)=>{if(!db.classes.some(x=>x.n==n))db.classes.push({n,c})};
+ need(i.rev,'Revenue');need('Accounts Receivable','Assets');if(i.vat>0)need('VAT Payable','Liabilities');if(i.wht>0)need('WHT Receivable','Assets');
+ const b={date:i.date,payee:i.client,doc:i.no,by:me.n,at:now(),inv:i.id},d='Invoice '+i.no+(i.pid?' – '+pLabel(i.pid):''),L=[{...b,desc:d+' – revenue',dr:'Accounts Receivable',cr:i.rev,amt:i.sub}];
+ if(i.vat>0)L.push({...b,desc:d+' – VAT',dr:'Accounts Receivable',cr:'VAT Payable',amt:i.vat});
+ if(i.wht>0)L.push({...b,desc:d+' – WHT deducted',dr:'WHT Receivable',cr:'Accounts Receivable',amt:i.wht});
+ L.forEach((t,k)=>db.tx.push({id:Date.now()+k,...t}));i.led=true}
+function postInvNow(id){const i=db.inv.find(x=>x.id==id);if(!i||i.led)return;i.rev=i.rev||'Sales';postInv(i);save();toast('Posted to the ledger');render()}
+function issueInv(){
+ const v=i=>($('#'+i)||{}).value||'',date=v('iv_d'),cl=v('iv_c'),items=[];
+ for(let i=0;i<INVN;i++){const d=v('iv_d'+i).trim(),a=parseFloat(v('iv_a'+i));if(d||a)items.push({d,a})}
+ if(!date||!cl)return toast('Enter the invoice date and choose a client');
+ if(!items.length||items.some(x=>!x.d||!(x.a>0)))return toast('Each line needs a description and an amount above 0');
+ const sig=sigData('sg_inv');if(!sig)return toast('Please sign the invoice');
+ const sub=tot(items.map(x=>x.a)),vat=r2(v('iv_vt')=='1'?sub*.075:0),wr=parseFloat(v('iv_w'))||0,wht=r2(sub*wr/100);
+ const rec={id:Date.now(),no:serial('invSeq','INV-',db.inv,'no',true),date,client:cl,pid:v('iv_p'),items,sub,vat,whtRate:wr,wht,net:r2(sub+vat-wht),rev:v('iv_rv')||'Sales',sig,by:me.n,at:now()};db.inv.push(rec);postInv(rec);
+ save();INVN=1;toast('Invoice issued and posted to the ledger');render(true)}
+function invPdf(id){
+ const i=db.inv.find(x=>x.id==id);if(!i)return;
+ pdfDoc('Invoice-'+i.no,'Invoice '+i.no,`<table><tr><th>Invoice no.</th><td>${esc(i.no)}</td><th>Date</th><td>${i.date}</td></tr><tr><th>Client</th><td>${esc(i.client)}</td><th>Project</th><td>${i.pid?esc(pLabel(i.pid)):'—'}</td></tr></table>
+ <table><tr><th>#</th><th>Description</th><th class="n">Amount</th></tr>${i.items.map((x,k)=>`<tr><td>${k+1}</td><td>${esc(x.d)}</td><td class="n">${fmt(x.a)}</td></tr>`).join('')}
+ <tr><td></td><td>Subtotal</td><td class="n">${fmt(i.sub)}</td></tr><tr><td></td><td>VAT (7.5%)</td><td class="n">${fmt(i.vat)}</td></tr><tr><td></td><td>Less: WHT${i.whtRate?' ('+i.whtRate+'%)':''}</td><td class="n">${fmt(i.wht)}</td></tr><tr class="t"><td></td><td>Net total amount</td><td class="n">${fmt(i.net)}</td></tr></table>
+ <h3>Signature</h3><img src="${i.sig}" style="height:80px;border-bottom:1px solid #000"><div>Issued by ${esc(i.by)} · ${esc(when(i.at))}</div>`)}
+/* project reports (Projects → Directors and Finance) */
+function repFill(){const p=db.projects.find(x=>x.id==$('#rp_p').value);$('#rp_c').value=p?p.client:'';$('#rp_n').value=p?p.name:''}
+function repForm(){
+ return `<div class="card"><h3>Project report (sent to directors and finance)</h3><div class="grid"><label>Date of report<input id="rp_d" type="date" value="${today()}"></label><label>Report number (serial)<input id="rp_no" value="${serial('repSeq','RPT-',db.reps,'no')}" readonly></label>
+ <label>Project ID<select id="rp_p" onchange="repFill()"><option value="">Select</option>${db.projects.map(p=>`<option value="${esc(p.id)}">${esc(p.no)}</option>`).join('')}</select></label><label>Client name<input id="rp_c" readonly></label><label>Project name<input id="rp_n" readonly></label>
+ <label>Level of completion (%)<input id="rp_pc" type="number" min="0" max="100" step="1"></label></div>
+ <label>Note<textarea id="rp_t" rows="4" style="width:100%;font:inherit"></textarea></label><b>Signature of project manager</b>${sigPad('sg_rep')}
+ <p class="sm">Your name and the time are stamped on the report. Sent reports cannot be edited or deleted.</p><p><button onclick="sendRep()">Send report</button></p></div>`}
+function sendRep(){
+ const v=i=>$('#'+i).value,p=db.projects.find(x=>x.id==v('rp_p')),pc=parseFloat(v('rp_pc'));
+ if(!v('rp_d')||!p||!(pc>=0&&pc<=100))return toast('Enter the date, choose a project and a completion level from 0 to 100');
+ const sig=sigData('sg_rep');if(!sig)return toast('Please add the project manager\'s signature');
+ db.reps.push({id:Date.now(),no:serial('repSeq','RPT-',db.reps,'no',true),date:v('rp_d'),pid:p.id,pno:p.no,client:p.client,pname:p.name,pct:pc,note:v('rp_t').trim(),sig,by:me.n,at:now()});
+ save();toast('Report sent to directors and finance');render(true)}
+function repTbl(l){
+ if(!l.length)return'<p class="sm">No project reports yet.</p>';
+ return `<div class="w"><table><tr><th>Report no.</th><th>Date</th><th>Project ID</th><th>Client</th><th>Project</th><th class="n">Completion</th><th>Note</th><th>Sent by</th><th></th></tr>
+ ${l.slice().reverse().map(r=>`<tr><td>${esc(r.no)}</td><td>${r.date}</td><td>${esc(r.pno)}</td><td>${esc(r.client)}</td><td>${esc(r.pname)}</td><td class="n">${r.pct}%</td><td>${esc(r.note)}</td><td>${stamp(r.by,r.at)}</td><td><button class="s" onclick="repPdf(${r.id})">PDF</button></td></tr>`).join('')}</table></div>`}
+function repPdf(id){
+ const r=db.reps.find(x=>x.id==id);if(!r)return;
+ pdfDoc('Project-Report-'+r.no,'Project report '+r.no,`<table><tr><th>Report number</th><td>${esc(r.no)}</td><th>Date of report</th><td>${r.date}</td></tr><tr><th>Project ID</th><td>${esc(r.pno)}</td><th>Client name</th><td>${esc(r.client)}</td></tr>
+ <tr><th>Project name</th><td>${esc(r.pname)}</td><th>Level of completion</th><td>${r.pct}%</td></tr><tr><th>Sent to</th><td>Directors and Finance</td><th>Sent by</th><td>${esc(r.by)} · ${esc(when(r.at))}</td></tr></table>
+ <h3>Note</h3><div style="white-space:pre-wrap">${esc(r.note)||'—'}</div><h3>Signature of project manager</h3><img src="${r.sig}" style="height:80px;border-bottom:1px solid #000">`)}
+const repView=()=>`<div class="card"><h2>Project reports received</h2><p class="sm">Reports sent from the Projects module to directors and finance.</p>${repTbl(db.reps)}</div>`;
+/* project budget forms (Projects → Directors and Finance) */
+let BGN=1;
+const bgRow=i=>`<div class="fb" style="grid-template-columns:3fr 1fr"><label>Description ${i+1}<input id="bg_d${i}"></label><label>Amount<input id="bg_a${i}" type="number" min="0" step="0.01" oninput="bgTot()"></label></div>`;
+const addBgLine=()=>{BGN++;$('#bg_items').insertAdjacentHTML('beforeend',bgRow(BGN-1))};
+const bgTot=()=>{const e=$('#bg_tot');if(e)e.textContent=fmt(tot([...document.querySelectorAll('[id^="bg_a"]')].map(x=>parseFloat(x.value)||0)))};
+const bgFill=()=>{const p=db.projects.find(x=>x.id==$('#bg_p').value);$('#bg_n').value=p?p.name:''};
+function bgForm(){
+ return `<div class="card"><h3>Project budget form (sent to directors and finance)</h3><div class="grid"><label>Budget form no. (serial)<input id="bg_no" value="${serial('budSeq','BUD-',db.buds,'no')}" readonly></label>
+ <label>Project number<select id="bg_p" onchange="bgFill()"><option value="">Select</option>${db.projects.map(p=>`<option value="${esc(p.id)}">${esc(p.no)}</option>`).join('')}</select></label><label>Project name<input id="bg_n" readonly></label></div>
+ <div id="bg_items">${Array.from({length:BGN},(_,i)=>bgRow(i)).join('')}</div>
+ <div class="bar"><button class="g" onclick="addBgLine()">+ Add another description</button><span class="sm">Total: <b id="bg_tot">0.00</b></span></div>
+ <p class="sm">Your name and the time are stamped on the form. The form goes to the directors for approval and finance receives a copy. Sent forms cannot be edited or deleted.</p><p><button onclick="sendBud()">Send budget form</button></p></div>`}
+function sendBud(){
+ const v=i=>($('#'+i)||{}).value||'',p=db.projects.find(x=>x.id==v('bg_p')),items=[];
+ for(let i=0;i<BGN;i++){const d=v('bg_d'+i).trim(),a=parseFloat(v('bg_a'+i));if(d||a)items.push({d,a})}
+ if(!p)return toast('Select a project number');
+ if(!items.length||items.some(x=>!x.d||!(x.a>0)))return toast('Each line needs a description and an amount above 0');
+ db.buds.push({id:Date.now(),no:serial('budSeq','BUD-',db.buds,'no',true),date:today(),pid:p.id,pno:p.no,pname:p.name,client:p.client,items,total:tot(items.map(x=>x.a)),bs:'Pending',by:me.n,at:now()});
+ save();BGN=1;toast('Budget form sent to directors and finance');render(true)}
+function bgTbl(l,act){
+ if(!l.length)return'<p class="sm">None.</p>';
+ return `<div class="w"><table><tr><th>Form no.</th><th>Project no.</th><th>Project</th><th>Description</th><th class="n">Total</th><th>Sent by</th><th>Approval</th><th></th></tr>
+ ${l.slice().reverse().map(b=>`<tr><td>${esc(b.no)}</td><td>${esc(b.pno)}</td><td>${esc(b.pname)}</td><td>${b.items.map(i=>`${esc(i.d)} <span class="sm">(${fmt(i.a)})</span>`).join('<br>')}</td><td class="n">${fmt(b.total)}</td><td>${stamp(b.by,b.at)}</td>
+ <td><b class="${b.bs=='Approved'?'cr':b.bs=='Rejected'?'dr':''}">${b.bs}</b>${b.bby?`<div class="sm">${esc(b.bby)}, ${when(b.bat)}${b.bnote?' – '+esc(b.bnote):''}</div>`:''}</td>
+ <td><button class="s" onclick="bgPdf(${b.id})">PDF</button>${act&&b.bs=='Pending'?(can('directors')?` <button class="s" onclick="decideBud(${b.id},'Approved')">Approve</button> <button class="g" onclick="decideBud(${b.id},'Rejected')">Reject</button>`:' <span class="sm">No permission</span>'):''}${b.bs=='Approved'?'<div class="sm">Locked</div>':''}</td></tr>`).join('')}</table></div>`}
+function bgPdf(id){
+ const b=db.buds.find(x=>x.id==id);if(!b)return;
+ pdfDoc('Project-Budget-'+b.no,'Project budget form '+b.no,`<table><tr><th>Budget form no.</th><td>${esc(b.no)}</td><th>Date</th><td>${b.date}</td></tr><tr><th>Project number</th><td>${esc(b.pno)}</td><th>Project name</th><td>${esc(b.pname)}</td></tr>
+ <tr><th>Sent to</th><td>Directors and Finance</td><th>Sent by</th><td>${esc(b.by)} · ${esc(when(b.at))}</td></tr><tr><th>Approval</th><td>${b.bs}</td><th>Decided by</th><td>${b.bby?esc(b.bby)+' · '+esc(when(b.bat))+(b.bnote?' – '+esc(b.bnote):''):'—'}</td></tr></table>
+ <table><tr><th>#</th><th>Description</th><th class="n">Amount</th></tr>${b.items.map((i,k)=>`<tr><td>${k+1}</td><td>${esc(i.d)}</td><td class="n">${fmt(i.a)}</td></tr>`).join('')}<tr class="t"><td></td><td>Total budget</td><td class="n">${fmt(b.total)}</td></tr></table>`)}
+const bgView=()=>`<div class="card"><h2>Project budget forms received</h2><p class="sm">Budget forms sent from the Projects module to directors and finance.</p>${bgTbl(db.buds)}</div>`;
+/* Directors */
+function dirView(){
+ const L=db.projects.map(pSum),I=tot(L.map(x=>x.i)),O=tot(L.map(x=>x.o));
+ const pend=db.reqs.filter(r=>r.ap.directors&&r.ap.directors.s=='Pending'&&rst(r)=='Pending'),pb=db.buds.filter(b=>b.bs=='Pending');
+ return `<!--S:Summary--><div class="card bal"><h2>Directors</h2><div class="grid"><div>Total inflows<b class="cr">${fmt(I)}</b></div><div>Total outflows<b class="dr">${fmt(O)}</b></div><div>Net balance<b class="${I-O<0?'dr':''}">${fmt(I-O)}</b></div><div>Requests awaiting approval<b>${pend.length}</b></div><div>Budgets awaiting approval<b>${pb.length}</b></div></div></div>
+ <div class="card"><h3>Project summary</h3>${sumTbl()}</div>
+ <!--S:Project budgets--><div class="card"><h3>Project budgets awaiting approval</h3>${bgTbl(pb,true)}</div>
+ <div class="card"><h3>Project budget records (approved / rejected)</h3>${bgTbl(db.buds.filter(b=>b.bs!='Pending'),false)}</div>
+ <!--S:Requests awaiting approval--><div class="card"><h3>Requests awaiting approval (all departments)</h3>${reqTbl(pend,'directors')}</div>
+ <!--S:Project reports--><div class="card"><h3>Project reports received</h3>${repTbl(db.reps)}</div>
+ <!--S:Approved requests--><div class="card"><h3>Approved requests (records – locked)</h3>${exB('expApr')}${reqTbl(db.reqs.filter(r=>rst(r)=='Approved'),null)}</div>`}
+function finReq(){
+ return `<div class="card"><h2>Request to Directors</h2><p class="sm">Send a payment request from Finance and Accounts to the directors for approval. Approved requests appear in the Directors module and are locked.</p></div>
+ ${reqForm('Finance')}
+ <div class="card"><h3>Requests sent from Finance and Accounts</h3>${reqTbl(db.reqs.filter(r=>r.src=='Finance'),null,true)}</div>`}
+function finView(){
+ const pend=db.reqs.filter(r=>r.ap.finance&&r.ap.finance.s=='Pending'&&rst(r)=='Pending');
+ return `<div class="card"><h2>Finance approvals</h2><p class="sm">Requests from Human Resources that are also addressed to Finance.</p><h3>Awaiting finance</h3>${reqTbl(pend,'finance')}</div>
+ <div class="card"><h3>All requests addressed to Finance</h3>${reqTbl(db.reqs.filter(r=>r.ap.finance),null)}</div>`}
+/* Human Resources */
+const hrList=()=>db.staff.filter(s=>has(s.no,hf.no)&&has(s.name,hf.name)&&has(s.phone,hf.phone));
+function hrBox(){
+ const l=hrList();if(!l.length)return'<p class="sm">No staff found.</p>';
+ return `<p class="sm">${l.length} of ${db.staff.length} staff. Staff records cannot be deleted; mark a staff member inactive instead.</p><div class="w"><table style="min-width:1300px"><tr><th>ID no.</th><th>Name</th><th>Department</th><th>Position</th><th>Email</th><th>Phone</th><th>Address</th><th>Next of kin</th><th class="n">Monthly gross</th><th class="n">Annual gross</th><th>Registered by</th><th>Inactive since</th><th></th></tr>
+ ${l.map(s=>`<tr><td>${esc(s.no)}</td><td>${esc(s.name)}</td><td>${esc(s.dept)}</td><td>${esc(s.pos)}</td><td>${esc(s.email)}</td><td>${esc(s.phone)}</td><td>${esc(s.addr)}</td><td>${esc(s.nok)}<div class="sm">${esc(s.nokp)}</div></td><td class="n">${fmt(s.mg)}</td><td class="n">${fmt(s.ag)}</td><td>${stamp(s.by,s.at,s.eby,s.eat)}</td>
+ <td>${s.inactive?`<b class="dr">${s.inactive}</b><div class="sm">${esc(s.iby||'')}</div>`:`<span class="cr">Active</span> <button class="s" onclick="setInactive(${s.id})">Mark inactive</button>`}</td><td><button class="s" onclick="editStaff(${s.id})">Edit</button></td></tr>`).join('')}</table></div>`}
+const expStaff=async k=>exportTbl(k,'Staff-register','Staff register',['ID no.','Name','Department','Position','Email','Phone','Address','NOK name','NOK phone','Monthly gross','Annual gross','Registered by','Registered at','Inactive since'],
+ hrList().map(s=>[s.no,s.name,s.dept,s.pos||'',s.email||'',s.phone||'',s.addr||'',s.nok||'',s.nokp||'',s.mg||0,s.ag||0,s.by||'',when(s.at),s.inactive||'']),[11,24,18,18,26,16,28,20,16,15,15,18,20,14]);
+const setHf=(k,v)=>{hf[k]=v;$('#hrbox').innerHTML=hrBox()};
+function hCalc(){const e=$('#h_y');if(e)e.value=fmt((parseFloat($('#h_m').value)||0)*12)}
+function setInactive(id){
+ const s=db.staff.find(x=>x.id==id);if(!s)return;
+ const d=prompt('Date '+s.name+' became inactive (YYYY-MM-DD)',today());if(d===null)return;
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(d)||isNaN(new Date(d)))return toast('Enter the date as YYYY-MM-DD');
+ s.inactive=d;s.iby=me.n;s.iat=now();save();render()}
+function hrView(){
+ const by={};db.depts.forEach(d=>by[d]=[0,0]);db.staff.forEach(s=>{(by[s.dept]=by[s.dept]||[0,0])[s.inactive?1:0]++});
+ const act=db.staff.filter(s=>!s.inactive).length,fi=(lab,key)=>`<label>${lab}<input value="${esc(hf[key])}" oninput="setHf('${key}',this.value)"></label>`;
+ return `<!--S:Staff summary--><div class="card bal"><h2>Human Resources</h2><div class="grid"><div>Total staff<b>${db.staff.length}</b></div><div>Active<b class="cr">${act}</b></div><div>Inactive<b class="dr">${db.staff.length-act}</b></div></div>
+ <div class="w"><table style="max-width:520px"><tr><th>Department</th><th class="n">Active</th><th class="n">Inactive</th><th class="n">Total</th></tr>${Object.entries(by).map(([d,c])=>`<tr><td>${esc(d)}</td><td class="n">${c[0]}</td><td class="n">${c[1]}</td><td class="n">${c[0]+c[1]}</td></tr>`).join('')}<tr class="t"><td>Total</td><td class="n">${act}</td><td class="n">${db.staff.length-act}</td><td class="n">${db.staff.length}</td></tr></table></div></div>
+ <!--S:Add staff--><div class="card"><h3>Add new staff</h3><div class="grid"><label>ID number (serial)<input id="h_no" value="${serial('empSeq','EMP-',db.staff,'no')}" readonly></label><label>Name<input id="h_n"></label><label>Department${so('h_d',db.depts.map(d=>[d,d]),'Select','d')}</label><label>Position<input id="h_p"></label>
+ <label>Email<input id="h_e" type="email"></label><label>Phone number<input id="h_t"></label><label>Address<input id="h_a"></label><label>Next of kin name<input id="h_k"></label><label>Next of kin phone<input id="h_kp"></label>
+ <label>Monthly gross salary<input id="h_m" type="number" min="0" step="0.01" oninput="hCalc()"></label><label>Annual gross salary (monthly × 12)<input id="h_y" readonly></label></div>
+ <p class="sm">Your name and the time are stamped on the record.</p><p><button onclick="addEmp()">Add staff</button></p></div>
+ <!--S:Approval request-->${reqForm('HR')}
+ <!--S:Staff register-->${hrEditCard()}<div class="card"><h3>Staff register</h3><div class="fb">${fi('ID number','no')}${fi('Name','name')}${fi('Phone','phone')}<button class="g" onclick="hf.no=hf.name=hf.phone='';render()">&#10005; Clear filters</button></div>${exB('expStaff')}<div id="hrbox">${hrBox()}</div></div>
+ <!--S:Attendance-->${hrAtt()}<!--S:Leave-->${hrLeave()}<!--S:Payroll-->${hrPay()}<!--S:HR analytics-->${hrStats()}
+ <!--S:Approval request--><div class="card"><h3>Requests sent from HR</h3>${reqTbl(db.reqs.filter(r=>r.src=='HR'),null,true)}</div>`}
+function addEmp(){
+ const g=i=>$('#'+i).value.trim(),n=g('h_n'),d=$('#h_d').value,m=parseFloat($('#h_m').value);
+ if(!n||!d||!(m>=0))return toast('Enter name, department and monthly gross salary');
+ const no=serial('empSeq','EMP-',db.staff,'no',true);
+ db.staff.push({id:Date.now(),no,name:n,dept:d,pos:g('h_p'),email:g('h_e'),phone:g('h_t'),addr:g('h_a'),nok:g('h_k'),nokp:g('h_kp'),mg:m,ag:r2(m*12),inactive:'',by:me.n,at:now()});
+ save();toast('Staff added with ID '+no);['h_n','h_p','h_e','h_t','h_a','h_k','h_kp','h_m'].forEach(i=>$('#'+i).value='');$('#h_no').value=serial('empSeq','EMP-',db.staff,'no');render()}
+
+/* ---------- HR: attendance, leave, payroll, payslips, analytics ---------- */
+const HLd=d=>{d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const HWd=(a,b)=>{let n=0;for(let d=new Date(a+'T00:00');HLd(d)<=b;d.setDate(d.getDate()+1))if(d.getDay()%6)n++;return n};
+const HmS=m=>m+'-01',HmE=m=>HLd(new Date(+m.slice(0,4),+m.slice(5,7),0)),HmAdd=(m,k)=>HLd(new Date(+m.slice(0,4),+m.slice(5,7)-1+k,1)).slice(0,7);
+const HsS=s=>s.start||(s.at||'').slice(0,10)||'2000-01-01',HmaxD=(a,b)=>a>b?a:b,HminD=(a,b)=>a<b?a:b;
+const HLT=['Annual','Sick','Casual','Maternity/Paternity','Unpaid'],HDEF={pen:8,nhf:0,ded:0,al:20,bands:[[800000,0],[2200000,15],[9000000,18],[13000000,21],[25000000,23],[0,25]]};
+let HAm=HLd().slice(0,7),HAf='',HPm=HLd().slice(0,7),hEd=null;
+const hMine=()=>me&&root.companies[root.active].staff.find(s=>s.uname&&s.uname==me.u&&!s.inactive);
+const hNm=id=>(db.staff.find(s=>s.id==id)||{}).name||'?';
+const hStf=(id,sel)=>`<select id="${id}"><option value="">Select staff</option>${db.staff.filter(s=>!s.inactive).map(s=>`<option value="${s.id}" ${s.id==sel?'selected':''}>${esc(s.name)} (${esc(s.no)})</option>`).join('')}</select>`;
+const hTime=iso=>iso?new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+/* edit staff */
+function editStaff(id){hEd=id;SEC['Human Resources']='Staff register';render();scrollTo(0,0)}
+function hrEditCard(){const s=hEd&&db.staff.find(x=>x.id==hEd);if(!s)return'';
+ return `<div class="card"><h3>Edit staff: ${esc(s.name)} (${esc(s.no)})</h3><div class="grid"><label>Name<input id="h_xn" value="${esc(s.name)}"></label><label>Department${so('h_xd',db.depts.map(d=>[d,d]),'Select','',s.dept)}</label><label>Position<input id="h_xp" value="${esc(s.pos)}"></label>
+ <label>Email<input id="h_xe" type="email" value="${esc(s.email)}"></label><label>Phone number<input id="h_xt" value="${esc(s.phone)}"></label><label>Address<input id="h_xa" value="${esc(s.addr)}"></label><label>Next of kin name<input id="h_xk" value="${esc(s.nok)}"></label><label>Next of kin phone<input id="h_xkp" value="${esc(s.nokp)}"></label>
+ <label>Monthly gross salary<input id="h_xm" type="number" min="0" step="0.01" value="${s.mg||0}"></label><label>Start date<input id="h_xs" type="date" value="${HsS(s)}"></label><label>Inactive since (leave blank if active)<input id="h_xi" type="date" value="${s.inactive||''}"></label>
+ <label>Linked login (for clock-in, leave and payslips)<select id="h_xu"><option value="">None</option>${db.users.map(u=>`<option value="${esc(u.u)}" ${u.u==s.uname?'selected':''}>${esc(u.n)} (${esc(u.u)})</option>`).join('')}</select></label></div>
+ <p class="sm">Create the login in Admin, User logins (role Employee), then link it here. Annual gross is recalculated automatically.</p><p><button onclick="saveEmp()">Save changes</button> <button class="g" onclick="hEd=null;render()">Cancel</button></p></div>`}
+function saveEmp(){const s=db.staff.find(x=>x.id==hEd);if(!s)return;const g=i=>$('#'+i).value.trim(),m=parseFloat($('#h_xm').value),inn=$('#h_xi').value,u=g('h_xu');
+ if(!g('h_xn')||!$('#h_xd').value||!(m>=0))return toast('Enter name, department and monthly gross salary');
+ if(u&&db.staff.some(x=>x.id!=s.id&&x.uname==u))return toast('That login is already linked to another staff member');
+ Object.assign(s,{name:g('h_xn'),dept:$('#h_xd').value,pos:g('h_xp'),email:g('h_xe'),phone:g('h_xt'),addr:g('h_xa'),nok:g('h_xk'),nokp:g('h_xkp'),mg:m,ag:r2(m*12),start:$('#h_xs').value||'',uname:u,eby:me.n,eat:now()});
+ if(inn!==s.inactive){s.inactive=inn;if(inn){s.iby=me.n;s.iat=now()}}
+ hEd=null;save();toast('Staff record updated');render()}
+/* attendance */
+function hrAtt(){const t=HLd(),l=db.att.filter(a=>a.date.startsWith(HAm)&&(!HAf||a.sid==HAf)).sort((x,y)=>x.date<y.date?1:-1);
+ return `<div class="card"><h2>Time and attendance</h2><div class="grid bal"><div>Clocked in today<b class="cr">${db.att.filter(a=>a.date==t).length}</b></div><div>Still on duty<b>${db.att.filter(a=>a.date==t&&!a.out).length}</b></div><div>Active staff<b>${db.staff.filter(s=>!s.inactive).length}</b></div></div>
+ <div class="fb"><label>Month<input type="month" value="${HAm}" onchange="HAm=this.value||HAm;render()"></label><label>Staff<select onchange="HAf=this.value;render()"><option value="">All staff</option>${db.staff.map(s=>`<option value="${s.id}" ${HAf==s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label></div>
+ <div class="w"><table><tr><th>Date</th><th>Staff</th><th>Clock in</th><th>Clock out</th><th class="n">Hours</th><th>Location</th><th></th></tr>${l.map(a=>`<tr><td>${a.date}</td><td>${esc(hNm(a.sid))}</td><td>${hTime(a.in)}</td><td>${hTime(a.out)}</td><td class="n">${a.in&&a.out?((new Date(a.out)-new Date(a.in))/36e5).toFixed(1):''}</td><td class="sm">${esc(a.li||'')}</td><td><button class="s" onclick="delAtt(${a.id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="7" class="sm">No records for this month.</td></tr>'}</table></div>
+ <h3>Add or correct a record</h3><div class="fb"><label>Staff${hStf('h_as')}</label><label>Date<input id="h_ad" type="date" value="${t}"></label><label>Clock in<input id="h_ai" type="time" value="08:00"></label><label>Clock out<input id="h_ao" type="time" value="17:00"></label><button onclick="addAtt()">Save record</button></div></div>`}
+function addAtt(){const sid=+$('#h_as').value,d=$('#h_ad').value,i=$('#h_ai').value,o=$('#h_ao').value;if(!sid||!d||!i)return toast('Choose staff, date and clock-in time');
+ db.att=db.att.filter(a=>!(a.sid==sid&&a.date==d));db.att.push({id:Date.now(),sid,date:d,in:new Date(d+'T'+i).toISOString(),out:o?new Date(d+'T'+o).toISOString():'',li:'Entered by '+me.n});save();render()}
+function delAtt(id){if(!confirm('Remove this attendance record?'))return;db.att=db.att.filter(a=>a.id!=id);save();render()}
+function clock(){const s=hMine();if(!s)return;const done=loc=>{const t=HLd();let r=db.att.find(a=>a.sid==s.id&&a.date==t);
+  if(!r)db.att.push({id:Date.now(),sid:s.id,date:t,in:now(),out:'',li:loc});else if(!r.out){r.out=now();r.li=(r.li||'')+(loc?' | out '+loc:'')}else return toast('You have already clocked out today');
+  save();toast('Recorded at '+hTime(now()));render()};
+ navigator.geolocation?navigator.geolocation.getCurrentPosition(p=>done(p.coords.latitude.toFixed(4)+','+p.coords.longitude.toFixed(4)),()=>done(''),{timeout:4000}):done('')}
+/* leave */
+const hLvD=(sid,a,b,f)=>db.leave.filter(l=>l.sid==sid&&l.st=='Approved'&&(!f||f(l))).reduce((n,l)=>n+HWd(HmaxD(l.from,a),HminD(l.to,b)),0);
+const hBal=s=>{const y=HLd().slice(0,4);return db.hrc.al-hLvD(s.id,y+'-01-01',y+'-12-31',l=>l.type=='Annual')};
+function reqLeave(){const s=hMine(),t=$('#h_lt').value,f=$('#h_lf').value,e=$('#h_le').value;if(!s)return;if(!f||!e||e<f)return toast('Choose valid from and to dates');
+ db.leave.push({id:Date.now(),sid:s.id,type:t,from:f,to:e,days:HWd(f,e),reason:$('#h_lr').value.trim(),st:'Pending',at:now()});save();toast('Leave request sent');render()}
+function decLeave(id,st){const l=db.leave.find(x=>x.id==id);if(!l)return;const n=prompt(st+' - add a note (optional)','');if(n===null)return;l.st=st;l.note=n;l.by=me.n;l.dat=now();save();render()}
+const hLvRows=(l,act)=>l.map(x=>`<tr><td>${esc(hNm(x.sid))}</td><td>${x.type}</td><td>${x.from} to ${x.to}</td><td class="n">${x.days}</td><td>${esc(x.reason||'')}</td><td><b class="${x.st=='Approved'?'cr':x.st=='Denied'?'dr':''}">${x.st}</b>${x.by?`<div class="sm">${esc(x.by)}${x.note?': '+esc(x.note):''}</div>`:''}</td>${act?`<td>${x.st=='Pending'?`<button class="s" onclick="decLeave(${x.id},'Approved')">Approve</button> <button class="s" onclick="decLeave(${x.id},'Denied')">Deny</button>`:''}</td>`:''}</tr>`).join('')||'<tr><td colspan="7" class="sm">None.</td></tr>';
+const hLvTh=a=>`<tr><th>Staff</th><th>Type</th><th>Dates</th><th class="n">Weekdays</th><th>Reason</th><th>Status</th>${a?'<th></th>':''}</tr>`;
+function hrLeave(){const L=[...db.leave].sort((a,b)=>a.at<b.at?1:-1);
+ return `<div class="card"><h2>Leave management</h2><h3>Awaiting approval</h3><div class="w"><table>${hLvTh(1)}${hLvRows(L.filter(x=>x.st=='Pending'),1)}</table></div></div>
+ <div class="card"><h3>Annual leave balances (${HLd().slice(0,4)})</h3><div class="w"><table style="max-width:560px"><tr><th>Staff</th><th class="n">Entitlement</th><th class="n">Taken</th><th class="n">Remaining</th></tr>${db.staff.filter(s=>!s.inactive).map(s=>`<tr><td>${esc(s.name)}</td><td class="n">${db.hrc.al}</td><td class="n">${db.hrc.al-hBal(s)}</td><td class="n">${hBal(s)}</td></tr>`).join('')}</table></div></div>
+ <div class="card"><h3>All leave records</h3><div class="w"><table>${hLvTh(0)}${hLvRows(L,0)}</table></div></div>`}
+/* payroll */
+function hPaye(t){let r=0,left=t;for(const[w,p]of db.hrc.bands){const x=w?Math.min(left,w):left;if(x<=0)break;r+=x*p/100;left-=x}return r}
+function Hcalc(s,m){const c=db.hrc,e0=HmE(m),a=HmaxD(HmS(m),HsS(s)),end=s.inactive&&s.inactive<e0?s.inactive:e0,td=HLd(),b=HminD(end,td),wd=HWd(HmS(m),e0),emp=HWd(a,end),non=wd-emp;
+ const unp=hLvD(s.id,a,end,l=>l.type=='Unpaid'),paid=hLvD(s.id,a,end,l=>l.type!='Unpaid'),lvB=hLvD(s.id,a,b);
+ const pres=new Set(db.att.filter(x=>x.sid==s.id&&x.date>=a&&x.date<=b&&new Date(x.date+'T00:00').getDay()%6).map(x=>x.date)).size;
+ const abs=Math.max(0,HWd(a,b)-pres-lvB),dd=non+unp+(c.ded?abs:0),gross=s.mg||0,ded=wd?Math.min(gross,r2(gross/wd*dd)):0,earned=r2(gross-ded);
+ const pen=r2(earned*c.pen/100),nhf=r2(earned*c.nhf/100),tax=r2(hPaye(Math.max(0,earned*12-(pen+nhf)*12))/12);
+ return{sid:s.id,no:s.no,name:s.name,dept:s.dept,gross,wd,emp,pres,paid,unp,abs,ded,earned,pen,nhf,tax,net:r2(earned-pen-nhf-tax)}}
+function runPay(){const m=HPm;let r=db.pay.find(x=>x.m==m);if(r&&r.st=='Published')return;
+ const lines=db.staff.filter(s=>(!s.inactive||s.inactive>=HmS(m))&&HsS(s)<=HmE(m)).map(s=>Hcalc(s,m));
+ if(r){r.lines=lines;r.by=me.n;r.at=now()}else db.pay.push({id:Date.now(),m,st:'Draft',by:me.n,at:now(),lines});save();render()}
+function pubPay(){const r=db.pay.find(x=>x.m==HPm);if(r&&confirm('Publish payslips for '+HPm+'? Staff will see them and the payroll is locked.')){r.st='Published';r.pub=now();r.pby=me.n;save();render()}}
+function reopenPay(){const r=db.pay.find(x=>x.m==HPm);if(r&&confirm('Reopen this payroll? Staff will no longer see these payslips until you publish again.')){r.st='Draft';save();render()}}
+function saveCfg(){const b=$('#h_cb').value.split('\n').map(x=>x.trim()).filter(Boolean).map(x=>x.split(':').map(Number));
+ if(!b.length||b.some(x=>x.length!=2||x.some(isNaN)))return toast('Tax bands: one per line as limit:rate');
+ db.hrc={pen:+$('#h_cp').value||0,nhf:+$('#h_cn').value||0,ded:+$('#h_cd').value,al:+$('#h_ca').value||0,bands:b};save();toast('Payroll settings saved');render()}
+function payTbl(r){const T=k=>r.lines.reduce((a,l)=>a+l[k],0);
+ return `<div class="w"><table style="min-width:900px"><tr><th>ID</th><th>Staff</th><th class="n">Gross</th><th class="n">Absence/unpaid</th><th class="n">Pension</th><th class="n">NHF</th><th class="n">PAYE tax</th><th class="n">Net pay</th><th></th></tr>
+ ${r.lines.map(l=>`<tr><td>${esc(l.no)}</td><td>${esc(l.name)}<div class="sm">${l.pres} present, ${l.paid} paid leave, ${l.unp} unpaid, ${l.abs} no record</div></td><td class="n">${fmt(l.gross)}</td><td class="n">${fmt(l.ded)}</td><td class="n">${fmt(l.pen)}</td><td class="n">${fmt(l.nhf)}</td><td class="n">${fmt(l.tax)}</td><td class="n">${fmt(l.net)}</td><td><button class="s" onclick="slip(${r.id},${l.sid})">Payslip</button></td></tr>`).join('')}
+ <tr class="t"><td></td><td>Total</td><td class="n">${fmt(T('gross'))}</td><td class="n">${fmt(T('ded'))}</td><td class="n">${fmt(T('pen'))}</td><td class="n">${fmt(T('nhf'))}</td><td class="n">${fmt(T('tax'))}</td><td class="n">${fmt(T('net'))}</td><td></td></tr></table></div>`}
+const expPay=async k=>{const r=db.pay.find(x=>x.m==HPm);if(!r)return toast('Calculate payroll first');return exportTbl(k,'Payroll-'+HPm,'Payroll '+HPm,['ID no.','Name','Department','Gross','Absence/unpaid deduction','Pension','NHF','PAYE tax','Net pay'],r.lines.map(l=>[l.no,l.name,l.dept,l.gross,l.ded,l.pen,l.nhf,l.tax,l.net]),[11,24,18,15,18,14,12,14,15])};
+function hrPay(){const r=db.pay.find(x=>x.m==HPm),c=db.hrc,pub=r&&r.st=='Published';
+ return `<div class="card"><h2>Payroll</h2><p class="sm">Pay is worked out from each person's monthly gross, adjusted for start/exit dates, unpaid leave and (if switched on below) days with no attendance record or approved leave. Pension, NHF and PAYE are then deducted using the settings below.</p>
+ <div class="fb"><label>Month<input type="month" value="${HPm}" onchange="HPm=this.value||HPm;render()"></label>${pub?'':`<button onclick="runPay()">${r?'Recalculate':'Calculate'} payroll</button>`}${r&&!pub?'<button onclick="pubPay()">Publish payslips</button>':''}${pub&&me.role=='admin'?'<button class="g" onclick="reopenPay()">Reopen</button>':''}</div>
+ ${r?`<p class="sm">Status: <b>${r.st}</b>. Calculated by ${esc(r.by)}, ${when(r.at)}.</p>${exB('expPay')}${payTbl(r)}`:'<p class="sm">No payroll for this month yet.</p>'}</div>
+ <div class="card"><h3>Payroll settings</h3><div class="grid"><label>Employee pension (% of pay)<input id="h_cp" type="number" step="0.1" value="${c.pen}"></label><label>NHF (% of pay)<input id="h_cn" type="number" step="0.1" value="${c.nhf}"></label><label>Annual leave days<input id="h_ca" type="number" value="${c.al}"></label>
+ <label>Deduct pay for days with no attendance record or leave<select id="h_cd"><option value="0" ${c.ded?'':'selected'}>No</option><option value="1" ${c.ded?'selected':''}>Yes</option></select></label></div>
+ <label>Annual PAYE bands, one per line as band size:rate % (0 = everything above)<textarea id="h_cb" rows="6" style="width:100%;font:inherit;background:var(--paper);color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:8px">${c.bands.map(b=>b.join(':')).join('\n')}</textarea></label>
+ <p class="sm">Default bands follow the Nigeria Tax Act 2025 (first 800,000 at 0%, then 15%, 18%, 21%, 23%, 25%). Rates and reliefs change, so confirm them with your tax adviser before running real payroll.</p><p><button onclick="saveCfg()">Save settings</button></p></div>`}
+function slip(rid,sid){const r=db.pay.find(x=>x.id==rid),l=r&&r.lines.find(x=>x.sid==sid);if(!l)return;const R=(a,b)=>`<tr><td>${a}</td><td class="n">${b}</td></tr>`;
+ pdfDoc('Payslip-'+l.no+'-'+r.m,'Payslip '+r.m,`<h3>${esc(db.co.name||'Ledger')}</h3><p>Employee: <b>${esc(l.name)}</b> (${esc(l.no)})<br>Department: ${esc(l.dept)}<br>Pay period: ${r.m}</p><table style="max-width:460px">${R('Gross salary',fmt(l.gross))}${R('Absence / unpaid leave',fmt(-l.ded))}${R('<b>Earned pay</b>','<b>'+fmt(l.earned)+'</b>')}${R('Pension',fmt(-l.pen))}${R('NHF',fmt(-l.nhf))}${R('PAYE tax',fmt(-l.tax))}<tr class="t"><td>Net pay</td><td class="n">${fmt(l.net)}</td></tr></table><p class="sm">Working days ${l.wd}; present ${l.pres}; paid leave ${l.paid}; unpaid leave ${l.unp}; no record ${l.abs}.</p>`)}
+/* analytics */
+function hrStats(){const td=HLd(),cm=td.slice(0,7),ms=[...Array(12)].map((_,i)=>HmAdd(cm,i-11)),hc=m=>db.staff.filter(s=>HsS(s)<=HmE(m)&&(!s.inactive||s.inactive>HmE(m))).length,H=ms.map(hc),mx=Math.max(1,...H);
+ const from=HmS(ms[0]),lv=db.staff.filter(s=>s.inactive&&s.inactive>=from).length,avg=H.reduce((a,b)=>a+b,0)/12,A=ms.slice(6).map(m=>{const L=db.staff.filter(s=>HsS(s)<=HmE(m)&&(!s.inactive||s.inactive>=HmS(m))).map(s=>Hcalc(s,m)),S=k=>L.reduce((a,l)=>a+l[k],0);return{m,paid:S('paid'),unp:S('unp'),abs:S('abs'),rate:S('emp')?S('pres')/S('emp')*100:0}}),cur=db.staff.filter(s=>!s.inactive).map(s=>Hcalc(s,cm)).sort((a,b)=>(b.paid+b.unp+b.abs)-(a.paid+a.unp+a.abs)).slice(0,5);
+ return `<div class="card bal"><h2>HR analytics</h2><div class="grid"><div>Headcount now<b>${hc(cm)}</b></div><div>Leavers (12 months)<b class="dr">${lv}</b></div><div>Turnover rate<b>${avg?(lv/avg*100).toFixed(1):'0.0'}%</b></div><div>Pending leave<b>${db.leave.filter(l=>l.st=='Pending').length}</b></div></div></div>
+ <div class="card"><h3>Headcount trend (month end)</h3><div class="w"><table style="max-width:560px">${ms.map((m,i)=>`<tr><td style="width:80px">${m}</td><td><div class="hb" style="width:${H[i]/mx*100}%"></div></td><td class="n" style="width:40px">${H[i]}</td></tr>`).join('')}</table></div></div>
+ <div class="card"><h3>Absence by month</h3><p class="sm">"No record" means a working day with no clock-in and no approved leave. Attendance rate is days present against days employed.</p><div class="w"><table style="max-width:640px"><tr><th>Month</th><th class="n">Paid leave days</th><th class="n">Unpaid leave days</th><th class="n">No record days</th><th class="n">Attendance rate</th></tr>${A.map(x=>`<tr><td>${x.m}</td><td class="n">${x.paid}</td><td class="n">${x.unp}</td><td class="n">${x.abs}</td><td class="n">${x.rate.toFixed(0)}%</td></tr>`).join('')}</table></div>
+ <h3>Most days away this month</h3><div class="w"><table style="max-width:520px">${cur.map(l=>`<tr><td>${esc(l.name)}</td><td class="n">${l.paid+l.unp+l.abs} days</td></tr>`).join('')||'<tr><td class="sm">No staff.</td></tr>'}</table></div></div>`}
+/* self-service */
+function myView(){const s=hMine();if(!s)return'<div class="card"><h2>My HR</h2><p>Your login is not linked to a staff record. Ask HR to link it.</p></div>';
+ const t=HLd(),r=db.att.find(a=>a.sid==s.id&&a.date==t),mine=db.leave.filter(l=>l.sid==s.id).sort((a,b)=>a.at<b.at?1:-1),m=HLd().slice(0,7),recent=db.att.filter(a=>a.sid==s.id).sort((a,b)=>a.date<b.date?1:-1).slice(0,10);
+ return `<!--S:Clock in/out--><div class="card" style="text-align:center"><h2>Hello, ${esc(s.name)}</h2><p class="sm">${new Date().toDateString()}</p><p>${r?`In: <b>${hTime(r.in)}</b>${r.out?` &nbsp; Out: <b>${hTime(r.out)}</b>`:''}`:'You have not clocked in today.'}</p>
+ <p>${r&&r.out?'<span class="cr">Done for today</span>':`<button style="font-size:20px;padding:16px 36px" onclick="clock()">${r?'Clock out':'Clock in'}</button>`}</p><p class="sm">Your phone may ask to share your location; it is saved with the record.</p></div>
+ <div class="card"><h3>Recent attendance</h3><div class="w"><table style="max-width:520px"><tr><th>Date</th><th>In</th><th>Out</th></tr>${recent.map(a=>`<tr><td>${a.date}</td><td>${hTime(a.in)}</td><td>${hTime(a.out)}</td></tr>`).join('')||'<tr><td colspan="3" class="sm">No records yet.</td></tr>'}</table></div></div>
+ <!--S:My leave--><div class="card"><h2>Request leave</h2><p class="sm">Annual leave remaining this year: <b>${hBal(s)}</b> days.</p><div class="grid"><label>Type<select id="h_lt">${HLT.map(x=>`<option>${x}</option>`).join('')}</select></label><label>From<input id="h_lf" type="date" value="${t}"></label><label>To<input id="h_le" type="date" value="${t}"></label><label>Reason<input id="h_lr"></label></div><p><button onclick="reqLeave()">Send request</button></p></div>
+ <div class="card"><h3>My leave requests</h3><div class="w"><table>${hLvTh(0)}${hLvRows(mine,0)}</table></div></div>
+ <!--S:My payslips--><div class="card"><h2>My payslips</h2><div class="w"><table style="max-width:520px"><tr><th>Month</th><th class="n">Net pay</th><th></th></tr>${db.pay.filter(p=>p.st=='Published'&&p.lines.some(l=>l.sid==s.id)).sort((a,b)=>a.m<b.m?1:-1).map(p=>{const l=p.lines.find(x=>x.sid==s.id);return`<tr><td>${p.m}</td><td class="n">${fmt(l.net)}</td><td><button class="s" onclick="slip(${p.id},${s.id})">Download</button></td></tr>`}).join('')||'<tr><td colspan="3" class="sm">No payslips published yet.</td></tr>'}</table></div></div>`}
+
+/* ---------- admin ---------- */
+const cbs=(cls,sel=[],fn='')=>Object.entries(root.companies).map(([id,c])=>`<label style="display:inline-flex;gap:5px;align-items:center;margin-right:12px"><input type="checkbox" class="${cls}" value="${id}" ${sel.includes(id)?'checked':''} ${fn?`onchange="${fn}"`:''} style="width:auto;margin:0"> ${esc(c.co.name||'Unnamed')}</label>`).join('');
+function admin(){return `<!--S:Organisation--><div class="card"><h2>Organisation: ${esc(db.co.name||'Unnamed')}</h2><div class="grid">
+ <label>Company name<input id="c_n" value="${esc(db.co.name)}"></label><label>Logo<input id="c_l" type="file" accept="image/*"></label></div>
+ <p><button onclick="saveCo()">Save organisation</button></p></div>
+ <!--S:User logins--><div class="card"><h2>User logins</h2><p class="sm">Each user can only open the module for their role: Director → Directors, Human Resource → Human Resources, Project Staff → Projects, Finance → Finance and Accounts (including Finance Approvals). Only the administrator sees Admin and every module.</p>
+ <div class="grid"><label>Full name<input id="s_n"></label><label>Username<input id="s_u"></label><label>Password<input id="s_p" type="password"></label>
+ <label>Role<select id="s_r"><option value="">Select role</option>${ROLES.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></label></div>
+ <p><button onclick="addStaff()">Add user</button></p>
+ <div class="w"><table><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr>${db.users.map(u=>`<tr><td>${esc(u.n)}</td><td>${esc(u.u)}</td><td>${u.role=='admin'?'Administrator':`<select onchange="setRole('${esc(u.u)}',this.value)" style="margin:0">${ROLES.map(([v,t])=>`<option value="${v}" ${u.role==v?'selected':''}>${t}</option>`).join('')}</select>`}</td><td>${u.role!='admin'?`<button class="s" onclick="rmStaff('${esc(u.u)}')">Remove</button>`:'<span class="sm">Administrator</span>'}</td></tr>`).join('')}</table></div></div>
+ <!--S:Backup and restore--><div class="card"><h2>Backup and restore</h2><p class="sm">The backup file contains all transactions, projects, HR records, requests, user logins and the logo. Keep it somewhere safe. Last backup: ${localStorage.getItem('acc_lb')?when(localStorage.getItem('acc_lb')):'never'}.</p>
+ <div class="bar"><button onclick="backup()">Download backup</button></div>
+ <div class="grid"><label>Restore from a backup file<input id="r_f" type="file" accept=".json,application/json"></label></div>
+ <p><button class="s" onclick="restore()">Restore backup</button> <span class="sm">Restoring replaces everything currently in this app.</span></p></div>
+ <!--S:Cloud sync--><div class="card"><h2>Cloud sync</h2>${cloudCard()}</div>`}
+function backup(){const n=new Date().toISOString();
+ dl(new Blob([JSON.stringify(root,null,1)],{type:'application/json'}),'Ledger-backup-'+n.slice(0,10)+'.json').then(()=>{localStorage.setItem('acc_lb',n);setTimeout(render,300)})}
+function restore(){const f=$('#r_f').files[0];if(!f)return toast('Choose a backup file first');
+ const r=new FileReader();r.onerror=()=>toast('Could not read the file');
+ r.onload=()=>{let o;try{o=JSON.parse(r.result)}catch(e){return toast('This is not a valid backup file')}
+  const ok=o&&Array.isArray(o.users)&&o.companies&&typeof o.companies=='object'&&Object.keys(o.companies).length&&Object.values(o.companies).every(c=>c&&c.co&&Array.isArray(c.tx)&&Array.isArray(c.classes)&&Array.isArray(c.payees));
+  if(!ok)return toast('This file is not a Ledger backup');
+  const cnt=Object.values(o.companies).reduce((a,c)=>a+c.tx.length,0);
+  if(!confirm('Restore this backup? It contains '+Object.keys(o.companies).length+' company(ies) and '+cnt+' transactions. Everything currently in the app will be replaced.'))return;
+  if(!o.companies[o.active])o.active=Object.keys(o.companies)[0];
+  root=o;ensure();save();view='Dashboard';editId=null;draft=null;toast('Backup restored');render()};
+ r.readAsText(f)}
+function saveCo(){db.co.name=$('#c_n').value.trim();const f=$('#c_l').files[0];
+ const done=()=>{save();render();toast('Organisation saved')};
+ if(!f)return done();const r=new FileReader();r.onload=()=>{db.co.logo=r.result;done()};r.readAsDataURL(f)}
+const ROLES=[['director','Director'],['hr','Human Resource'],['project','Project Staff'],['finance','Finance'],['staff','Employee (self-service only)']];
+function setRole(u,r){const x=db.users.find(y=>y.u==u&&y.role!='admin');if(!x||!ROLES.some(a=>a[0]==r))return;x.role=r;save();toast('Role updated for '+x.n)}
+function rmStaff(u){const x=db.users.find(y=>y.u==u&&y.role!='admin');if(!x)return;
+ if(!confirm('Remove '+x.n+' ('+x.u+')? They will no longer be able to sign in. Transactions they recorded are kept with their name.'))return;
+ db.users=db.users.filter(y=>y!==x);save();render();toast('Staff removed')}
+async function addStaff(){const n=$('#s_n').value.trim(),u=$('#s_u').value.trim(),p=$('#s_p').value;
+ if(!n||!u||p.length<4)return toast('Enter name, username and a password of 4+ characters');
+ if(db.users.some(x=>x.u==u))return toast('Username already exists');
+ const role=$('#s_r').value;if(!role)return toast('Select a role');
+ db.users.push({u,n,h:await hash(p),role});save();render();toast('User added')}
+
+/* ---------- export ---------- */
+const COLS=['Date','Doc No.','Payer/Payee','Description','Debit class','Credit class','Amount','Recorded by','Recorded at','Edited by','Edited at'];
+const row=t=>[t.date,t.doc,t.payee,t.desc,t.dr,t.cr,t.amt,t.by,when(t.at),t.eb||'',when(t.ea)];
+const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc=u=>{let c=-1;for(const b of u)c=crcT[(c^b)&255]^(c>>>8);return(c^-1)>>>0};
+function zip(fs){const e=new TextEncoder(),parts=[],cd=[];let off=0;
+ for(const f of fs){const nm=e.encode(f.n),d=typeof f.d=='string'?e.encode(f.d):f.d,c=crc(d);
+  const h=new DataView(new ArrayBuffer(30));h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint32(14,c,true);h.setUint32(18,d.length,true);h.setUint32(22,d.length,true);h.setUint16(26,nm.length,true);
+  const g=new DataView(new ArrayBuffer(46));g.setUint32(0,0x02014b50,true);g.setUint16(4,20,true);g.setUint16(6,20,true);g.setUint32(16,c,true);g.setUint32(20,d.length,true);g.setUint32(24,d.length,true);g.setUint16(28,nm.length,true);g.setUint32(42,off,true);
+  parts.push(h.buffer,nm,d);cd.push(g.buffer,nm);off+=30+nm.length+d.length}
+ const cs=cd.reduce((a,x)=>a+x.byteLength,0),z=new DataView(new ArrayBuffer(22));z.setUint32(0,0x06054b50,true);z.setUint16(8,fs.length,true);z.setUint16(10,fs.length,true);z.setUint32(12,cs,true);z.setUint32(16,off,true);
+ return new Blob([...parts,...cd,z.buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})}
+async function dl(b,n){
+ try{if(/iPhone|iPad/.test(navigator.userAgent)&&navigator.canShare){const f=new File([b],n,{type:b.type});if(navigator.canShare({files:[f]}))return await navigator.share({files:[f]})}
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.style.display='none';document.body.appendChild(a);a.click();
+  setTimeout(()=>{a.remove();URL.revokeObjectURL(a.href)},5000);toast('Downloading '+n)}
+ catch(e){if(e.name!='AbortError')toast('Download blocked. Open the app from its own web address, not inside a preview.')}}
+const logoPng=()=>new Promise(r=>{if(!db.co.logo)return r(null);const i=new Image();i.onerror=()=>r(null);
+ i.onload=()=>{if(!i.width||!i.height)return r(null);const k=Math.min(160/i.width,56/i.height),w=Math.round(i.width*k),h=Math.round(i.height*k),c=document.createElement('canvas');c.width=w*2;c.height=h*2;
+  c.getContext('2d').drawImage(i,0,0,w*2,h*2);c.toBlob(async b=>r({d:new Uint8Array(await b.arrayBuffer()),w,h}),'image/png')};i.src=db.co.logo});
+function pdfDoc(name,title,html){const w=open('','_blank');if(!w)return toast('Allow pop-ups, then choose Save as PDF in the print dialog');
+ w.document.write(`<title>${esc(name)}</title><style>@page{size:landscape;margin:12mm}body{font:11px sans-serif}table{border-collapse:collapse;width:100%;margin-bottom:14px}td,th{border:1px solid #999;padding:3px;text-align:left}.n{text-align:right}.t td{font-weight:700;border-top:2px solid #000}.h td{font-weight:700;background:#eee}.dr{color:#a2382b}.sm{color:#555}
+ .h0{display:flex;align-items:center;gap:12px;border-bottom:2px solid #12304a;padding-bottom:8px;margin-bottom:10px}.h0 img{max-height:60px;max-width:180px}h2{margin:0;font-size:20px}h3{margin:14px 0 4px}</style>
+ <div class="h0">${db.co.logo?`<img src="${db.co.logo}">`:''}<div><h2>${esc(db.co.name||'Ledger')}</h2><div>${esc(title)} · Exported by ${esc(me.n)}, ${esc(when(new Date()))}</div></div></div>${html}<script>onload=()=>print()<\/script>`);w.document.close()}
+const hdr=(tc,lines)=>lines.map((x,i)=>({c:[...Array(tc).fill(null),x],st:i==0?'t':i==1?'b':'',ht:i==0?28:0}));
+async function xlsxBook(sheets,fname){
+ const L=await logoPng(),cl=i=>String.fromCharCode(65+i),
+ cx=(r,i,v,st)=>v==null||v===''?'':typeof v=='number'?`<c r="${cl(i)}${r}" s="${st=='b'?4:3}"><v>${v}</v></c>`:`<c r="${cl(i)}${r}" s="${st=='t'?1:st=='b'?2:0}" t="inlineStr"><is><t>${esc(v)}</t></is></c>`;
+ const H='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',NS='xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',RN='http://schemas.openxmlformats.org/officeDocument/2006/relationships',PR='http://schemas.openxmlformats.org/package/2006/relationships',n=sheets.length,ix=sheets.map((_,i)=>i+1);
+ const f=[{n:'[Content_Types].xml',d:H+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${ix.map(k=>`<Override PartName="/xl/worksheets/sheet${k}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>${L?`<Override PartName="/xl/drawings/drawing${k}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`:''}`).join('')}</Types>`},
+ {n:'_rels/.rels',d:H+`<Relationships xmlns="${PR}"><Relationship Id="rId1" Type="${RN}/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+ {n:'xl/workbook.xml',d:H+`<workbook ${NS} xmlns:r="${RN}"><sheets>${sheets.map((s,i)=>`<sheet name="${esc(s.name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`},
+ {n:'xl/_rels/workbook.xml.rels',d:H+`<Relationships xmlns="${PR}">${ix.map(k=>`<Relationship Id="rId${k}" Type="${RN}/worksheet" Target="worksheets/sheet${k}.xml"/>`).join('')}<Relationship Id="rId${n+1}" Type="${RN}/styles" Target="styles.xml"/></Relationships>`},
+ {n:'xl/styles.xml',d:H+`<styleSheet ${NS}><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="16"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="4" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/></cellXfs></styleSheet>`}];
+ sheets.forEach((s,i)=>{const k=i+1;
+  f.push({n:`xl/worksheets/sheet${k}.xml`,d:H+`<worksheet ${NS} xmlns:r="${RN}"><cols>${s.W.map((w,j)=>`<col min="${j+1}" max="${j+1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${s.rows.map((r,j)=>`<row r="${j+1}"${r.ht?` ht="${r.ht}" customHeight="1"`:''}>${r.c.map((v,m)=>cx(j+1,m,v,r.st)).join('')}</row>`).join('')}</sheetData>${L?'<drawing r:id="rId1"/>':''}</worksheet>`});
+  if(L){const w=L.w*9525,h=L.h*9525;
+   f.push({n:`xl/worksheets/_rels/sheet${k}.xml.rels`,d:H+`<Relationships xmlns="${PR}"><Relationship Id="rId1" Type="${RN}/drawing" Target="../drawings/drawing${k}.xml"/></Relationships>`},
+   {n:`xl/drawings/_rels/drawing${k}.xml.rels`,d:H+`<Relationships xmlns="${PR}"><Relationship Id="rId1" Type="${RN}/image" Target="../media/image1.png"/></Relationships>`},
+   {n:`xl/drawings/drawing${k}.xml`,d:H+`<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${RN}"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>38100</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>38100</xdr:rowOff></xdr:from><xdr:ext cx="${w}" cy="${h}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Logo"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${w}" cy="${h}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`})}});
+ if(L)f.push({n:'xl/media/image1.png',d:L.d});
+ dl(zip(f),fname)}
+async function exp(kind,k){
+ const l=filt(db.tx.filter(t=>k=='All'||inCat(t,k)),view),name=(db.co.name||'Ledger')+'-'+k+'-'+today(),co=db.co.name||'Ledger',title=k+' transactions',who='Exported by '+me.n+', '+when(new Date());
+ if(kind=='pdf')return pdfDoc(name,title,`<table><tr>${COLS.map(c=>`<th>${c}</th>`).join('')}</tr>${l.map(t=>'<tr>'+row(t).map(v=>`<td>${esc(v)}</td>`).join('')+'</tr>').join('')}</table>`);
+ if(kind=='csv')return dl(new Blob(['\ufeff'+[COLS,...l.map(row)].map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')],{type:'text/csv'}),name+'.csv');
+ return xlsxBook([{name:'Transactions',W:[12,14,22,30,16,16,14,18,20,18,20],rows:[...hdr(2,[co,title,who]),{c:[]},{c:COLS,st:'b'},...l.map(t=>({c:row(t)}))]}],name+'.xlsx')}
+async function expStmt(kind){
+ const Y=getF(view).year||String(new Date().getFullYear()),S=stmts(Y,''),co=db.co.name||'Ledger',name=co+'-Financial-Statements-'+Y;
+ if(kind=='pdf')return pdfDoc(name,'Financial statements '+Y,`<h3>Statement of Comprehensive Income</h3><div class="sm">For the year ended 31 December ${Y}</div>${incHtml(S)}<h3>Statement of Financial Position</h3><div class="sm">As at 31 December ${Y}</div>${posHtml(S)}`);
+ const yl=['For the year ended 31 December '+Y,'Exported by '+me.n+', '+when(new Date())],pl=['As at 31 December '+Y,yl[1]];
+ const ir=S.inc.map(r=>r.t=='h'?{c:[r.l],st:'b'}:{c:[(r.t=='r'?'  ':'')+r.l,...r.a,tot(r.a)],st:r.t=='t'?'b':''});
+ const pr=S.pos.map(r=>r.t=='h'?{c:[r.l],st:'b'}:{c:[(r.t=='r'?'  ':'')+r.l,r.v],st:r.t=='t'?'b':''});
+ return xlsxBook([{name:'Income Statement',W:[34,...Array(13).fill(13)],rows:[...hdr(1,[co,'Statement of Comprehensive Income',...yl]),{c:[]},{c:['Account',...MON,'Total'],st:'b'},...ir]},
+  {name:'Financial Position',W:[44,18],rows:[...hdr(1,[co,'Statement of Financial Position',...pl]),{c:[]},{c:['Account','Amount'],st:'b'},...pr]}],name+'.xlsx')}
+
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+boot();
+</script></body></html>
