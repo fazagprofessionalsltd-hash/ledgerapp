@@ -120,7 +120,7 @@ const persist=()=>localStorage.setItem('acc',JSON.stringify(root));const save=()
 const db=new Proxy({},{get:(_,k)=>k=='users'?root.users:root.companies[root.active][k],set:(_,k,v)=>{(k=='users'?root:root.companies[root.active])[k]=v;return true}});
 
 let me=null;try{me=JSON.parse(sessionStorage.getItem('me'))}catch(e){}
-let view='Dashboard',editId=null,draft=null;
+let view='Record Transactions',editId=null,draft=null;
 const today=()=>new Date().toISOString().slice(0,10);
 const hash=async s=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('ledger:'+s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')};
 const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2500)};
@@ -144,7 +144,7 @@ async function setup(){const u=$('#a_u').value.trim(),p=$('#a_p').value,n=$('#a_
  db.co.name=$('#a_co').value.trim();db.users.push({u,n,h:await hash(p),role:'admin'});save();start(db.users[0])}
 async function login(){const u=$('#a_u').value.trim(),h=await hash($('#a_p').value);
  const x=db.users.find(x=>x.u==u&&x.h==h);x?start(x):toast('Wrong username or password')}
-function start(x){me={u:x.u,n:x.n,role:x.role};sessionStorage.setItem('me',JSON.stringify(me));view='Dashboard';render()}
+function start(x){me={u:x.u,n:x.n,role:x.role};sessionStorage.setItem('me',JSON.stringify(me));view='Record Transactions';render()}
 function out(){sessionStorage.removeItem('me');me=null;render()}
 
 /* ---------- shell ---------- */
@@ -160,11 +160,11 @@ function render(fresh){
  const U=me&&root.users.find(u=>u.u==me.u);if(!U){me=null;sessionStorage.removeItem('me')}else me.role=U.role;
  if(!me)return authScreen();
  const r=me.role,ad=r=='admin';
- const mods=[...(ad||r=='director'?['Directors']:[]),...(ad||r=='hr'?['Human Resources']:[]),...(ad||r=='project'?['Projects']:[]),...(ad?['Admin']:[]),...(hMine()?['My HR']:[])];
- const FIN=ad||r=='finance'?['Dashboard','Financial Reports',...CATS,'Issue Invoice','Project Reports','Project Budget Forms','Request to Directors','Finance Approvals']:[];
+ const mods=[...(ad?['Admin']:[]),...(ad||r=='director'?['Directors']:[]),...(ad||r=='hr'?['Human Resources']:[]),...(ad||r=='project'?['Projects']:[]),...(hMine()?['My HR']:[])];
+ const FIN=ad||r=='finance'?['Record Transactions','Financial Reports',...CATS,'Issue Invoice','Project Reports','Project Budget Forms','Request to Directors','Finance Approvals']:[];
  const vs=[...mods,...FIN];
  if(!vs.includes(view))view=vs[0]||'';
- const body=!vs.length?(()=>'<div class="card"><h2>No module assigned</h2><p>Your login has no module assigned yet. Please ask your administrator to assign a role.</p></div>'):({Dashboard:dash,'Financial Reports':fin,Admin:admin,Projects:projView,'Human Resources':hrView,'My HR':myView,Directors:dirView,'Request to Directors':finReq,'Issue Invoice':invView,'Project Reports':repView,'Project Budget Forms':bgView,'Finance Approvals':finView})[view]||(()=>catView(view));
+ const body=!vs.length?(()=>'<div class="card"><h2>No module assigned</h2><p>Your login has no module assigned yet. Please ask your administrator to assign a role.</p></div>'):({'Record Transactions':dash,'Financial Reports':fin,Admin:admin,Projects:projView,'Human Resources':hrView,'My HR':myView,Directors:dirView,'Request to Directors':finReq,'Issue Invoice':invView,'Project Reports':repView,'Project Budget Forms':bgView,'Finance Approvals':finView})[view]||(()=>catView(view));
  const sb=(t,on,c)=>`<a class="sub ${on?'on':''}" onclick="${c}">${t}</a>`;
  const navH=[...mods.map(m=>`<div class="grp">${m}</div>`+SECS[m].map(s=>sb(s,view==m&&SEC[m]==s,`goSec('${m}','${s}')`)).join('')),...(FIN.length?[`<div class="grp">Finance and Accounts</div>`+FIN.map(v=>sb(v,v==view,`go('${v}')`)).join('')]:[])].join('<hr>');
  $('#app').innerHTML=`<header><button class="mb" onclick="menu()" aria-label="Menu">&#9776;</button><div class="brand">${db.co.logo?`<img src="${db.co.logo}" alt="">`:''}${esc(db.co.name||'Ledger')}</div><div style="margin-left:auto">${esc(me.n)} <span class="sm" style="color:#c9d6df">(${esc(r)})</span> <button class="g" onclick="out()">Sign out</button></div></header>
@@ -213,7 +213,7 @@ function post(){
  if(editId)Object.assign(db.tx.find(x=>x.id==editId),recs[0],{eb:me.n,ea:now});
  else recs.forEach((r,i)=>db.tx.push({id:Date.now()+i,...r,by:me.n,at:now}));
  save();toast(editId?'Changes saved':recs.length+(recs.length>1?' transactions posted':' transaction posted'));editId=null;draft=null;render()}
-const edit=id=>{editId=id;draft=null;view='Dashboard';render();scrollTo(0,0)};
+const edit=id=>{editId=id;draft=null;view='Record Transactions';render();scrollTo(0,0)};
 
 /* ---------- tables & views ---------- */
 const F={},getF=v=>F[v]||(F[v]={}),isF=v=>Object.values(getF(v)).some(Boolean);
@@ -221,7 +221,7 @@ function filt(l,v){const f=getF(v),lc=x=>String(x||'').toLowerCase();
  return l.filter(t=>(!f.from||t.date>=f.from)&&(!f.to||t.date<=f.to)&&(!f.payee||lc(t.payee).includes(lc(f.payee)))&&(!f.doc||lc(t.doc).includes(lc(f.doc)))
  &&(f.min===undefined||f.min===''||t.amt>=+f.min)&&(f.max===undefined||f.max===''||t.amt<=+f.max)&&(!f.cls||t.dr==f.cls||t.cr==f.cls))}
 function setF(k,val){getF(view)[k]=val;view=='Financial Reports'?render():$('#txbox').innerHTML=txbox()}
-const clearF=()=>{if(view=='Dashboard'&&draft)grab();F[view]={};render();toast('Filters cleared')};
+const clearF=()=>{if(view=='Record Transactions'&&draft)grab();F[view]={};render();toast('Filters cleared')};
 function fbar(keys,yrs=[]){const f=getF(view),i=(k,lab,type='text',x='')=>`<label>${lab}<input type="${type}" ${x} value="${esc(f[k])}" oninput="setF('${k}',this.value)"></label>`;
  return `<div class="fb">${keys.map(k=>({date:()=>i('from','Date from','date')+i('to','Date to','date'),payee:()=>i('payee','Payer/Payee','text','list="pl"'),doc:()=>i('doc','Doc No.'),
  amt:()=>i('min','Amount min','number','step="0.01"')+i('max','Amount max','number','step="0.01"'),
@@ -229,8 +229,8 @@ function fbar(keys,yrs=[]){const f=getF(view),i=(k,lab,type='text',x='')=>`<labe
  cls:()=>`<label>Class<select onchange="setF('cls',this.value)"><option value="">All classes</option>${db.classes.map(x=>`<option ${f.cls==x.n?'selected':''}>${esc(x.n)}</option>`).join('')}</select></label>`}[k]())).join('')}
  <button class="g" onclick="clearF()">&#10005; Clear filters</button></div><datalist id="pl">${db.payees.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>`}
 function txbox(){let l=db.tx;if(CATS.includes(view))l=l.filter(t=>inCat(t,view));
- const f=filt(l,view),show=view=='Dashboard'&&!isF(view)?f.slice(-10):f;
- return `<p class="sm">${view=='Dashboard'&&!isF(view)?'Showing the last 10 transactions. Use the filters to search all.':`${f.length} of ${l.length} transactions`+(f.length?' · total amount '+fmt(f.reduce((a,t)=>a+t.amt,0)):'')}</p>`+txTable(show.slice().reverse())}
+ const f=filt(l,view),show=view=='Record Transactions'&&!isF(view)?f.slice(-10):f;
+ return `<p class="sm">${view=='Record Transactions'&&!isF(view)?'Showing the last 10 transactions. Use the filters to search all.':`${f.length} of ${l.length} transactions`+(f.length?' · total amount '+fmt(f.reduce((a,t)=>a+t.amt,0)):'')}</p>`+txTable(show.slice().reverse())}
 function txTable(l){
  if(!l.length)return '<p class="sm">No transactions yet.</p>';
  return `<div class="w"><table><tr><th>Date</th><th>Doc No.</th><th>Payer/Payee</th><th>Description</th><th>Debit class</th><th>Credit class</th><th class="n">Amount</th><th>Recorded by</th><th></th></tr>
@@ -240,8 +240,8 @@ function txTable(l){
 const exBar=(k)=>`<div class="bar"><span class="sm">Export:</span><button class="s" onclick="exp('xls','${k}').catch(e=>toast('Export failed: '+e.message))">Excel</button><button class="s" onclick="exp('csv','${k}').catch(e=>toast('Export failed: '+e.message))">CSV</button><button class="s" onclick="exp('pdf','${k}').catch(e=>toast('Export failed: '+e.message))">PDF</button></div>`;
 function catView(c){
  const k=db.classes.filter(x=>x.c==c);
- return `<div class="card"><h2>${c}</h2><div class="w"><table><tr><th>Class</th><th class="n">Total</th></tr>
- ${k.map(x=>`<tr><td>${esc(x.n)}</td><td class="n">${fmt(classTotal(x.n))}</td></tr>`).join('')}<tr class="t"><td>Total ${c}</td><td class="n">${fmt(catTotal(c))}</td></tr></table></div></div>
+ return `<div class="card"><h2>${c}</h2><div class="w"><table><tr><th>Class</th><th class="n">Total</th><th></th></tr>
+ ${k.map(x=>`<tr><td>${esc(x.n)}</td><td class="n">${fmt(classTotal(x.n))}</td><td><button class="s" onclick="editCls(${db.classes.indexOf(x)})">Edit</button></td></tr>`).join('')}<tr class="t"><td>Total ${c}</td><td class="n">${fmt(catTotal(c))}</td><td></td></tr></table></div></div>
  <div class="card"><h3>Transactions</h3>${exBar(c)}${fbar(['date','doc','payee','amt'])}<div id="txbox">${txbox()}</div></div>`}
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const tot=a=>a.reduce((x,y)=>x+y,0),sub=(a,b)=>a.map((v,i)=>v-b[i]),add=(a,b)=>a.map((v,i)=>v+b[i]);
@@ -537,7 +537,7 @@ function hrBox(){
 const expStaff=async k=>exportTbl(k,'Staff-register','Staff register',['ID no.','Name','Department','Position','Email','Phone','Address','NOK name','NOK phone','Monthly gross','Annual gross','Registered by','Registered at','Inactive since'],
  hrList().map(s=>[s.no,s.name,s.dept,s.pos||'',s.email||'',s.phone||'',s.addr||'',s.nok||'',s.nokp||'',s.mg||0,s.ag||0,s.by||'',when(s.at),s.inactive||'']),[11,24,18,18,26,16,28,20,16,15,15,18,20,14]);
 const setHf=(k,v)=>{hf[k]=v;$('#hrbox').innerHTML=hrBox()};
-function hCalc(){const e=$('#h_y');if(e)e.value=fmt((parseFloat($('#h_m').value)||0)*12)}
+function hCalc(){const v=i=>parseFloat(($('#'+i)||{}).value)||0;[['h_b','h_o','h_m','h_y'],['h_xb','h_xo','h_xm','h_xy']].forEach(([b,o,m,y])=>{if($('#'+m)){$('#'+m).value=r2(v(b)+v(o));if($('#'+y))$('#'+y).value=fmt((v(b)+v(o))*12)}})}
 function setInactive(id){
  const s=db.staff.find(x=>x.id==id);if(!s)return;
  const d=prompt('Date '+s.name+' became inactive (YYYY-MM-DD)',today());if(d===null)return;
@@ -550,18 +550,18 @@ function hrView(){
  <div class="w"><table style="max-width:520px"><tr><th>Department</th><th class="n">Active</th><th class="n">Inactive</th><th class="n">Total</th></tr>${Object.entries(by).map(([d,c])=>`<tr><td>${esc(d)}</td><td class="n">${c[0]}</td><td class="n">${c[1]}</td><td class="n">${c[0]+c[1]}</td></tr>`).join('')}<tr class="t"><td>Total</td><td class="n">${act}</td><td class="n">${db.staff.length-act}</td><td class="n">${db.staff.length}</td></tr></table></div></div>
  <!--S:Add staff--><div class="card"><h3>Add new staff</h3><div class="grid"><label>ID number (serial)<input id="h_no" value="${serial('empSeq','EMP-',db.staff,'no')}" readonly></label><label>Name<input id="h_n"></label><label>Department${so('h_d',db.depts.map(d=>[d,d]),'Select','d')}</label><label>Position<input id="h_p"></label>
  <label>Email<input id="h_e" type="email"></label><label>Phone number<input id="h_t"></label><label>Address<input id="h_a"></label><label>Next of kin name<input id="h_k"></label><label>Next of kin phone<input id="h_kp"></label>
- <label>Monthly gross salary<input id="h_m" type="number" min="0" step="0.01" oninput="hCalc()"></label><label>Annual gross salary (monthly × 12)<input id="h_y" readonly></label></div>
+ <label>Basic salary (monthly)<input id="h_b" type="number" min="0" step="0.01" oninput="hCalc()"></label><label>Other allowances (monthly)<input id="h_o" type="number" min="0" step="0.01" oninput="hCalc()"></label><label>Monthly gross (basic + allowances)<input id="h_m" readonly></label><label>Annual gross salary (monthly × 12)<input id="h_y" readonly></label><label>Loan deduction per month<input id="h_ln" type="number" min="0" step="0.01"></label><label>Other deductions per month<input id="h_od" type="number" min="0" step="0.01"></label></div>
  <p class="sm">Your name and the time are stamped on the record.</p><p><button onclick="addEmp()">Add staff</button></p></div>
  <!--S:Approval request-->${reqForm('HR')}
  <!--S:Staff register-->${hrEditCard()}<div class="card"><h3>Staff register</h3><div class="fb">${fi('ID number','no')}${fi('Name','name')}${fi('Phone','phone')}<button class="g" onclick="hf.no=hf.name=hf.phone='';render()">&#10005; Clear filters</button></div>${exB('expStaff')}<div id="hrbox">${hrBox()}</div></div>
  <!--S:Attendance-->${hrAtt()}<!--S:Leave-->${hrLeave()}<!--S:Payroll-->${hrPay()}<!--S:HR analytics-->${hrStats()}
  <!--S:Approval request--><div class="card"><h3>Requests sent from HR</h3>${reqTbl(db.reqs.filter(r=>r.src=='HR'),null,true)}</div>`}
 function addEmp(){
- const g=i=>$('#'+i).value.trim(),n=g('h_n'),d=$('#h_d').value,m=parseFloat($('#h_m').value);
- if(!n||!d||!(m>=0))return toast('Enter name, department and monthly gross salary');
+ const g=i=>$('#'+i).value.trim(),n=g('h_n'),d=$('#h_d').value,b=parseFloat($('#h_b').value)||0,o=parseFloat($('#h_o').value)||0,m=r2(b+o);
+ if(!n||!d||!(m>0))return toast('Enter name, department and basic salary');
  const no=serial('empSeq','EMP-',db.staff,'no',true);
- db.staff.push({id:Date.now(),no,name:n,dept:d,pos:g('h_p'),email:g('h_e'),phone:g('h_t'),addr:g('h_a'),nok:g('h_k'),nokp:g('h_kp'),mg:m,ag:r2(m*12),inactive:'',by:me.n,at:now()});
- save();toast('Staff added with ID '+no);['h_n','h_p','h_e','h_t','h_a','h_k','h_kp','h_m'].forEach(i=>$('#'+i).value='');$('#h_no').value=serial('empSeq','EMP-',db.staff,'no');render()}
+ db.staff.push({id:Date.now(),no,name:n,dept:d,pos:g('h_p'),email:g('h_e'),phone:g('h_t'),addr:g('h_a'),nok:g('h_k'),nokp:g('h_kp'),basic:b,allow:o,mg:m,ag:r2(m*12),loan:parseFloat($('#h_ln').value)||0,oded:parseFloat($('#h_od').value)||0,inactive:'',by:me.n,at:now()});
+ save();toast('Staff added with ID '+no);['h_n','h_p','h_e','h_t','h_a','h_k','h_kp','h_b','h_o','h_m','h_ln','h_od'].forEach(i=>$('#'+i).value='');$('#h_no').value=serial('empSeq','EMP-',db.staff,'no');render()}
 
 /* ---------- HR: attendance, leave, payroll, payslips, analytics ---------- */
 const HLd=d=>{d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
@@ -569,7 +569,7 @@ const HWd=(a,b)=>{let n=0;for(let d=new Date(a+'T00:00');HLd(d)<=b;d.setDate(d.g
 const HmS=m=>m+'-01',HmE=m=>HLd(new Date(+m.slice(0,4),+m.slice(5,7),0)),HmAdd=(m,k)=>HLd(new Date(+m.slice(0,4),+m.slice(5,7)-1+k,1)).slice(0,7);
 const HsS=s=>s.start||(s.at||'').slice(0,10)||'2000-01-01',HmaxD=(a,b)=>a>b?a:b,HminD=(a,b)=>a<b?a:b;
 const HLT=['Annual','Sick','Casual','Maternity/Paternity','Unpaid'];
-let HAm=HLd().slice(0,7),HAf='',HPm=HLd().slice(0,7),hEd=null;
+let HAm=HLd().slice(0,7),HAf='',HPm=HLd().slice(0,7),hEd=null,hLE=null;
 const hMine=()=>me&&root.companies[root.active].staff.find(s=>s.uname&&s.uname==me.u&&!s.inactive);
 const hNm=id=>(db.staff.find(s=>s.id==id)||{}).name||'?';
 const hStf=(id,sel)=>`<select id="${id}"><option value="">Select staff</option>${db.staff.filter(s=>!s.inactive).map(s=>`<option value="${s.id}" ${s.id==sel?'selected':''}>${esc(s.name)} (${esc(s.no)})</option>`).join('')}</select>`;
@@ -579,13 +579,13 @@ function editStaff(id){hEd=id;SEC['Human Resources']='Staff register';render();s
 function hrEditCard(){const s=hEd&&db.staff.find(x=>x.id==hEd);if(!s)return'';
  return `<div class="card"><h3>Edit staff: ${esc(s.name)} (${esc(s.no)})</h3><div class="grid"><label>Name<input id="h_xn" value="${esc(s.name)}"></label><label>Department${so('h_xd',db.depts.map(d=>[d,d]),'Select','',s.dept)}</label><label>Position<input id="h_xp" value="${esc(s.pos)}"></label>
  <label>Email<input id="h_xe" type="email" value="${esc(s.email)}"></label><label>Phone number<input id="h_xt" value="${esc(s.phone)}"></label><label>Address<input id="h_xa" value="${esc(s.addr)}"></label><label>Next of kin name<input id="h_xk" value="${esc(s.nok)}"></label><label>Next of kin phone<input id="h_xkp" value="${esc(s.nokp)}"></label>
- <label>Monthly gross salary<input id="h_xm" type="number" min="0" step="0.01" value="${s.mg||0}"></label><label>Start date<input id="h_xs" type="date" value="${HsS(s)}"></label><label>Inactive since (leave blank if active)<input id="h_xi" type="date" value="${s.inactive||''}"></label>
+ <label>Basic salary (monthly)<input id="h_xb" type="number" min="0" step="0.01" value="${s.basic!=null?s.basic:(s.mg||0)}" oninput="hCalc()"></label><label>Other allowances (monthly)<input id="h_xo" type="number" min="0" step="0.01" value="${s.allow||0}" oninput="hCalc()"></label><label>Monthly gross<input id="h_xm" readonly value="${s.mg||0}"></label><label>Annual gross<input id="h_xy" readonly value="${fmt((s.mg||0)*12)}"></label><label>Loan deduction per month<input id="h_xl" type="number" min="0" step="0.01" value="${s.loan||0}"></label><label>Other deductions per month<input id="h_xq" type="number" min="0" step="0.01" value="${s.oded||0}"></label><label>Start date<input id="h_xs" type="date" value="${HsS(s)}"></label><label>Inactive since (leave blank if active)<input id="h_xi" type="date" value="${s.inactive||''}"></label>
  <label>Linked login (for clock-in, leave and payslips)<select id="h_xu"><option value="">None</option>${db.users.map(u=>`<option value="${esc(u.u)}" ${u.u==s.uname?'selected':''}>${esc(u.n)} (${esc(u.u)})</option>`).join('')}</select></label></div>
  <p class="sm">Create the login in Admin, User logins (role Employee), then link it here. Annual gross is recalculated automatically.</p><p><button onclick="saveEmp()">Save changes</button> <button class="g" onclick="hEd=null;render()">Cancel</button></p></div>`}
-function saveEmp(){const s=db.staff.find(x=>x.id==hEd);if(!s)return;const g=i=>$('#'+i).value.trim(),m=parseFloat($('#h_xm').value),inn=$('#h_xi').value,u=g('h_xu');
- if(!g('h_xn')||!$('#h_xd').value||!(m>=0))return toast('Enter name, department and monthly gross salary');
+function saveEmp(){const s=db.staff.find(x=>x.id==hEd);if(!s)return;const g=i=>$('#'+i).value.trim(),b=parseFloat($('#h_xb').value)||0,o=parseFloat($('#h_xo').value)||0,m=r2(b+o),inn=$('#h_xi').value,u=g('h_xu');
+ if(!g('h_xn')||!$('#h_xd').value||!(m>0))return toast('Enter name, department and basic salary');
  if(u&&db.staff.some(x=>x.id!=s.id&&x.uname==u))return toast('That login is already linked to another staff member');
- Object.assign(s,{name:g('h_xn'),dept:$('#h_xd').value,pos:g('h_xp'),email:g('h_xe'),phone:g('h_xt'),addr:g('h_xa'),nok:g('h_xk'),nokp:g('h_xkp'),mg:m,ag:r2(m*12),start:$('#h_xs').value||'',uname:u,eby:me.n,eat:now()});
+ Object.assign(s,{name:g('h_xn'),dept:$('#h_xd').value,pos:g('h_xp'),email:g('h_xe'),phone:g('h_xt'),addr:g('h_xa'),nok:g('h_xk'),nokp:g('h_xkp'),basic:b,allow:o,mg:m,ag:r2(m*12),loan:parseFloat($('#h_xl').value)||0,oded:parseFloat($('#h_xq').value)||0,start:$('#h_xs').value||'',uname:u,eby:me.n,eat:now()});
  if(inn!==s.inactive){s.inactive=inn;if(inn){s.iby=me.n;s.iat=now()}}
  hEd=null;save();toast('Staff record updated');render()}
 /* attendance */
@@ -615,35 +615,64 @@ function hrLeave(){const L=[...db.leave].sort((a,b)=>a.at<b.at?1:-1);
  <div class="card"><h3>All leave records</h3><div class="w"><table>${hLvTh(0)}${hLvRows(L,0)}</table></div></div>`}
 /* payroll */
 function hPaye(t){let r=0,left=t;for(const[w,p]of db.hrc.bands){const x=w?Math.min(left,w):left;if(x<=0)break;r+=x*p/100;left-=x}return r}
-function Hcalc(s,m){const c=db.hrc,e0=HmE(m),a=HmaxD(HmS(m),HsS(s)),end=s.inactive&&s.inactive<e0?s.inactive:e0,td=HLd(),b=HminD(end,td),wd=HWd(HmS(m),e0),emp=HWd(a,end),non=wd-emp;
+function Hcalc(s,m,ov){ov=ov||{};const c=db.hrc,e0=HmE(m),a=HmaxD(HmS(m),HsS(s)),end=s.inactive&&s.inactive<e0?s.inactive:e0,td=HLd(),b=HminD(end,td),wd=HWd(HmS(m),e0),emp=HWd(a,end),non=wd-emp;
  const unp=hLvD(s.id,a,end,l=>l.type=='Unpaid'),paid=hLvD(s.id,a,end,l=>l.type!='Unpaid'),lvB=hLvD(s.id,a,b);
  const pres=new Set(db.att.filter(x=>x.sid==s.id&&x.date>=a&&x.date<=b&&new Date(x.date+'T00:00').getDay()%6).map(x=>x.date)).size;
- const abs=Math.max(0,HWd(a,b)-pres-lvB),dd=non+unp+(c.ded?abs:0),gross=s.mg||0,ded=wd?Math.min(gross,r2(gross/wd*dd)):0,earned=r2(gross-ded);
- const pen=r2(earned*c.pen/100),nhf=r2(earned*c.nhf/100),tax=r2(hPaye(Math.max(0,earned*12-(pen+nhf)*12))/12);
- return{sid:s.id,no:s.no,name:s.name,dept:s.dept,gross,wd,emp,pres,paid,unp,abs,ded,earned,pen,nhf,tax,net:r2(earned-pen-nhf-tax)}}
+ const abs=Math.max(0,HWd(a,b)-pres-lvB),dd=non+unp+(c.ded?abs:0);
+ const basic=ov.basic!=null?ov.basic:(s.basic!=null?s.basic:(s.mg||0)),allow=ov.allow!=null?ov.allow:(s.allow||0),gross=r2(basic+allow);
+ const ded=wd?Math.min(gross,r2(gross/wd*dd)):0,earned=r2(gross-ded),f=gross?earned/gross:0,base=c.base=='basic'?basic*f:earned;
+ const pen=r2(base*c.pen/100),nhf=r2(base*c.nhf/100),tax=r2(hPaye(Math.max(0,earned*12-(pen+nhf)*12))/12);
+ const loan=r2(ov.loan!=null?ov.loan:(s.loan||0)),oth=r2(ov.oth!=null?ov.oth:(s.oded||0));
+ return{sid:s.id,no:s.no,name:s.name,dept:s.dept,basic:r2(basic),allow:r2(allow),gross,wd,emp,pres,paid,unp,abs,ded,earned,pen,nhf,tax,loan,oth,net:r2(earned-pen-nhf-tax-loan-oth),ov:Object.keys(ov).length?ov:null}}
 function runPay(){const m=HPm;let r=db.pay.find(x=>x.m==m);if(r&&r.st=='Published')return;
- const lines=db.staff.filter(s=>(!s.inactive||s.inactive>=HmS(m))&&HsS(s)<=HmE(m)).map(s=>Hcalc(s,m));
- if(r){r.lines=lines;r.by=me.n;r.at=now()}else db.pay.push({id:Date.now(),m,st:'Draft',by:me.n,at:now(),lines});save();render()}
+ const lines=db.staff.filter(s=>(!s.inactive||s.inactive>=HmS(m))&&HsS(s)<=HmE(m)).map(s=>{const o=r&&r.lines.find(x=>x.sid==s.id);return Hcalc(s,m,o&&o.ov)});
+ if(r){r.lines=lines;r.by=me.n;r.at=now()}else db.pay.push({id:Date.now(),m,st:'Draft',by:me.n,at:now(),lines});
+ r=db.pay.find(x=>x.m==m);if(r.posted)postLedger(r,1);save();render()}
+function openPay(m){HPm=m;hLE=null;render();scrollTo(0,0)}
+function delPay(id){const r=db.pay.find(x=>x.id==id);if(!r||!confirm('Delete the '+r.m+' payroll'+(r.posted?' and its ledger entries':'')+'?'))return;db.tx=db.tx.filter(t=>t.pay!=id);db.pay=db.pay.filter(x=>x.id!=id);save();render()}
+function editLine(rid,sid){hLE={rid,sid};render();scrollTo(0,0)}
+function lineCard(){if(!hLE)return'';const r=db.pay.find(x=>x.id==hLE.rid),l=r&&r.lines.find(x=>x.sid==hLE.sid);if(!l)return'';
+ return `<div class="card"><h3>Edit payroll line: ${esc(l.name)} (${esc(l.no)}), ${r.m}</h3>${r.st=='Published'?'<p class="sm dr">This payroll is published. Saving changes the payslip'+(r.posted?' and updates the ledger entries':'')+'.</p>':''}
+ <div class="grid"><label>Basic salary<input id="h_eb" type="number" step="0.01" value="${l.basic}"></label><label>Other allowances<input id="h_ea" type="number" step="0.01" value="${l.allow}"></label><label>Loan deduction<input id="h_el" type="number" step="0.01" value="${l.loan}"></label><label>Other deductions<input id="h_eo" type="number" step="0.01" value="${l.oth}"></label></div>
+ <p class="sm">Pension, NHF and PAYE are recalculated from these figures.</p><p><button onclick="saveLine()">Save line</button> <button class="g" onclick="hLE=null;render()">Cancel</button></p></div>`}
+function saveLine(){const r=db.pay.find(x=>x.id==hLE.rid),s=db.staff.find(x=>x.id==hLE.sid),i=r&&r.lines.findIndex(x=>x.sid==hLE.sid),v=k=>parseFloat($('#'+k).value)||0;if(!s||i<0)return;
+ if(r.st=='Published'&&!confirm('This payroll is published. Save the change?'))return;
+ r.lines[i]=Hcalc(s,r.m,{basic:v('h_eb'),allow:v('h_ea'),loan:v('h_el'),oth:v('h_eo')});r.edby=me.n;r.edat=now();hLE=null;if(r.posted)postLedger(r,1);save();toast('Payroll line updated');render()}
+/* ledger posting */
+const HACC0={exp:'Salaries and Wages',net:'Net Salaries Payable',paye:'PAYE Payable',pen:'Pension Payable',nhf:'NHF Payable',loan:'Staff Loans Receivable',oth:'Other Deductions Payable'},HACCC={exp:'Expense',net:'Liabilities',paye:'Liabilities',pen:'Liabilities',nhf:'Liabilities',loan:'Assets',oth:'Liabilities'};
+function postLedger(r,quiet){if(!quiet&&!confirm((r.posted?'Repost':'Post')+' the '+r.m+' payroll to the ledger?\n\nDr Salaries and Wages, Cr Net Salaries Payable, PAYE Payable, Pension Payable, NHF Payable, Staff Loans Receivable and Other Deductions Payable.'))return;
+ const A=Object.assign({},HACC0,db.hrc.acct||{});db.hrc.acct=A;Object.keys(A).forEach(k=>{if(!db.classes.some(x=>x.n==A[k]))db.classes.push({n:A[k],c:HACCC[k]})});
+ if(!db.payees.includes('Payroll'))db.payees.push('Payroll');db.tx=db.tx.filter(t=>t.pay!=r.id);
+ const T=k=>r2(r.lines.reduce((a,l)=>a+l[k],0)),n=now(),rows=[['net',T('net'),'Net salaries'],['paye',T('tax'),'PAYE tax'],['pen',T('pen'),'Pension'],['nhf',T('nhf'),'NHF'],['loan',T('loan'),'Loan repayments'],['oth',T('oth'),'Other deductions']].filter(x=>x[1]>0);
+ rows.forEach((x,i)=>db.tx.push({id:Date.now()+i,date:HmE(r.m),payee:'Payroll',doc:'PAY-'+r.m,desc:'Payroll '+r.m+': '+x[2],dr:A.exp,cr:A[x[0]],amt:x[1],pay:r.id,by:me.n,at:n}));
+ r.posted=n;r.pstby=me.n;save();if(!quiet){toast(rows.length+' ledger entries posted');render()}}
+/* account rename */
+function editCls(i){const x=db.classes[i];if(!x)return;let n=prompt('Account name',x.n);if(n===null)return;n=n.trim();if(!n)return toast('Name cannot be empty');
+ if(n!=x.n&&db.classes.some(y=>y.n==n))return toast('An account with that name already exists');
+ const k=prompt('Category (leave blank to keep '+x.c+')\n'+CATS.map((c,j)=>(j+1)+' = '+c).join('\n'),'');if(k===null)return;
+ let c=x.c;if(k.trim()){c=CATS[parseInt(k,10)-1];if(!c)return toast('Choose a number from 1 to '+CATS.length)}
+ const o=x.n;x.n=n;x.c=c;db.tx.forEach(t=>{if(t.dr==o)t.dr=n;if(t.cr==o)t.cr=n});const A=db.hrc&&db.hrc.acct;if(A)Object.keys(A).forEach(k=>{if(A[k]==o)A[k]=n});save();toast('Account updated');render()}
 function pubPay(){const r=db.pay.find(x=>x.m==HPm);if(r&&confirm('Publish payslips for '+HPm+'? Staff will see them and the payroll is locked.')){r.st='Published';r.pub=now();r.pby=me.n;save();render()}}
 function reopenPay(){const r=db.pay.find(x=>x.m==HPm);if(r&&confirm('Reopen this payroll? Staff will no longer see these payslips until you publish again.')){r.st='Draft';save();render()}}
 function saveCfg(){const b=$('#h_cb').value.split('\n').map(x=>x.trim()).filter(Boolean).map(x=>x.split(':').map(Number));
  if(!b.length||b.some(x=>x.length!=2||x.some(isNaN)))return toast('Tax bands: one per line as limit:rate');
- db.hrc={pen:+$('#h_cp').value||0,nhf:+$('#h_cn').value||0,ded:+$('#h_cd').value,al:+$('#h_ca').value||0,bands:b};save();toast('Payroll settings saved');render()}
-function payTbl(r){const T=k=>r.lines.reduce((a,l)=>a+l[k],0);
- return `<div class="w"><table style="min-width:900px"><tr><th>ID</th><th>Staff</th><th class="n">Gross</th><th class="n">Absence/unpaid</th><th class="n">Pension</th><th class="n">NHF</th><th class="n">PAYE tax</th><th class="n">Net pay</th><th></th></tr>
- ${r.lines.map(l=>`<tr><td>${esc(l.no)}</td><td>${esc(l.name)}<div class="sm">${l.pres} present, ${l.paid} paid leave, ${l.unp} unpaid, ${l.abs} no record</div></td><td class="n">${fmt(l.gross)}</td><td class="n">${fmt(l.ded)}</td><td class="n">${fmt(l.pen)}</td><td class="n">${fmt(l.nhf)}</td><td class="n">${fmt(l.tax)}</td><td class="n">${fmt(l.net)}</td><td><button class="s" onclick="slip(${r.id},${l.sid})">Payslip</button></td></tr>`).join('')}
- <tr class="t"><td></td><td>Total</td><td class="n">${fmt(T('gross'))}</td><td class="n">${fmt(T('ded'))}</td><td class="n">${fmt(T('pen'))}</td><td class="n">${fmt(T('nhf'))}</td><td class="n">${fmt(T('tax'))}</td><td class="n">${fmt(T('net'))}</td><td></td></tr></table></div>`}
-const expPay=async k=>{const r=db.pay.find(x=>x.m==HPm);if(!r)return toast('Calculate payroll first');return exportTbl(k,'Payroll-'+HPm,'Payroll '+HPm,['ID no.','Name','Department','Gross','Absence/unpaid deduction','Pension','NHF','PAYE tax','Net pay'],r.lines.map(l=>[l.no,l.name,l.dept,l.gross,l.ded,l.pen,l.nhf,l.tax,l.net]),[11,24,18,15,18,14,12,14,15])};
+ db.hrc={pen:+$('#h_cp').value||0,nhf:+$('#h_cn').value||0,ded:+$('#h_cd').value,al:+$('#h_ca').value||0,bands:b,base:$('#h_cs').value,acct:db.hrc.acct};save();toast('Payroll settings saved');render()}
+function payTbl(r){const T=k=>r.lines.reduce((a,l)=>a+l[k],0),ks=['basic','allow','gross','ded','pen','nhf','tax','loan','oth','net'];
+ return `<div class="w"><table style="min-width:1250px"><tr><th>ID</th><th>Staff</th><th class="n">Basic salary</th><th class="n">Other allowances</th><th class="n">Gross</th><th class="n">Absence/unpaid</th><th class="n">Pension</th><th class="n">NHF</th><th class="n">PAYE tax</th><th class="n">Loan deduction</th><th class="n">Other deductions</th><th class="n">Net pay</th><th></th></tr>
+ ${r.lines.map(l=>`<tr><td>${esc(l.no)}</td><td>${esc(l.name)}<div class="sm">${l.pres} present, ${l.paid} paid leave, ${l.unp} unpaid, ${l.abs} no record</div></td>${ks.map(k=>`<td class="n">${fmt(l[k])}</td>`).join('')}<td><button class="s" onclick="editLine(${r.id},${l.sid})">Edit</button> <button class="s" onclick="slip(${r.id},${l.sid})">Payslip</button></td></tr>`).join('')}
+ <tr class="t"><td></td><td>Total</td>${ks.map(k=>`<td class="n">${fmt(T(k))}</td>`).join('')}<td></td></tr></table></div>`}
+const expPay=async k=>{const r=db.pay.find(x=>x.m==HPm);if(!r)return toast('Calculate payroll first');return exportTbl(k,'Payroll-'+HPm,'Payroll '+HPm,['ID no.','Name','Department','Basic salary','Other allowances','Gross','Absence/unpaid deduction','Pension','NHF','PAYE tax','Loan deduction','Other deductions','Net pay'],r.lines.map(l=>[l.no,l.name,l.dept,l.basic,l.allow,l.gross,l.ded,l.pen,l.nhf,l.tax,l.loan,l.oth,l.net]),[11,24,18,14,14,14,16,13,11,13,14,14,14])};
 function hrPay(){const r=db.pay.find(x=>x.m==HPm),c=db.hrc,pub=r&&r.st=='Published';
- return `<div class="card"><h2>Payroll</h2><p class="sm">Pay is worked out from each person's monthly gross, adjusted for start/exit dates, unpaid leave and (if switched on below) days with no attendance record or approved leave. Pension, NHF and PAYE are then deducted using the settings below.</p>
- <div class="fb"><label>Month<input type="month" value="${HPm}" onchange="HPm=this.value||HPm;render()"></label>${pub?'':`<button onclick="runPay()">${r?'Recalculate':'Calculate'} payroll</button>`}${r&&!pub?'<button onclick="pubPay()">Publish payslips</button>':''}${pub&&me.role=='admin'?'<button class="g" onclick="reopenPay()">Reopen</button>':''}</div>
- ${r?`<p class="sm">Status: <b>${r.st}</b>. Calculated by ${esc(r.by)}, ${when(r.at)}.</p>${exB('expPay')}${payTbl(r)}`:'<p class="sm">No payroll for this month yet.</p>'}</div>
- <div class="card"><h3>Payroll settings</h3><div class="grid"><label>Employee pension (% of pay)<input id="h_cp" type="number" step="0.1" value="${c.pen}"></label><label>NHF (% of pay)<input id="h_cn" type="number" step="0.1" value="${c.nhf}"></label><label>Annual leave days<input id="h_ca" type="number" value="${c.al}"></label>
+ return `${lineCard()}<div class="card"><h2>Payroll</h2><p class="sm">Gross salary is basic salary plus other allowances. It is adjusted for start/exit dates, unpaid leave and (if switched on below) days with no attendance record. Pension, NHF and PAYE come off next, then loan and other deductions, to give net pay.</p>
+ <div class="fb"><label>Month<input type="month" value="${HPm}" onchange="HPm=this.value||HPm;hLE=null;render()"></label>${pub?'':`<button onclick="runPay()">${r?'Recalculate':'Calculate'} payroll</button>`}${r&&!pub?'<button onclick="pubPay()">Publish payslips</button>':''}${r?`<button onclick="postLedger(db.pay.find(x=>x.m==HPm))">${r.posted?'Repost to ledger':'Post to ledger'}</button>`:''}${pub&&me.role=='admin'?'<button class="g" onclick="reopenPay()">Reopen</button>':''}</div>
+ ${r?`<p class="sm">Status: <b>${r.st}</b>. Calculated by ${esc(r.by)}, ${when(r.at)}.${r.edby?' Last edited by '+esc(r.edby)+', '+when(r.edat)+'.':''} Ledger: ${r.posted?'posted '+when(r.posted)+' by '+esc(r.pstby):'not posted yet'}.</p>${exB('expPay')}${payTbl(r)}`:'<p class="sm">No payroll for this month yet.</p>'}</div>
+ <div class="card"><h3>Saved payrolls</h3><div class="w"><table style="max-width:760px"><tr><th>Month</th><th>Status</th><th class="n">Staff</th><th class="n">Net pay</th><th>Ledger</th><th></th></tr>${[...db.pay].sort((a,b)=>a.m<b.m?1:-1).map(p=>`<tr><td>${p.m}</td><td>${p.st}</td><td class="n">${p.lines.length}</td><td class="n">${fmt(p.lines.reduce((a,l)=>a+l.net,0))}</td><td>${p.posted?'Posted':'Not posted'}</td><td><button class="s" onclick="openPay('${p.m}')">Open / Edit</button> <button class="s" onclick="delPay(${p.id})">Delete</button></td></tr>`).join('')||'<tr><td colspan="6" class="sm">No saved payrolls yet.</td></tr>'}</table></div></div>
+ <div class="card"><h3>Payroll settings</h3><div class="grid"><label>Employee pension (%)<input id="h_cp" type="number" step="0.1" value="${c.pen}"></label><label>NHF (%)<input id="h_cn" type="number" step="0.1" value="${c.nhf}"></label><label>Pension and NHF calculated on<select id="h_cs"><option value="gross" ${c.base=='basic'?'':'selected'}>Earned pay (gross)</option><option value="basic" ${c.base=='basic'?'selected':''}>Basic salary only</option></select></label><label>Annual leave days<input id="h_ca" type="number" value="${c.al}"></label>
  <label>Deduct pay for days with no attendance record or leave<select id="h_cd"><option value="0" ${c.ded?'':'selected'}>No</option><option value="1" ${c.ded?'selected':''}>Yes</option></select></label></div>
  <label>Annual PAYE bands, one per line as band size:rate % (0 = everything above)<textarea id="h_cb" rows="6" style="width:100%;font:inherit;background:var(--paper);color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:8px">${c.bands.map(b=>b.join(':')).join('\n')}</textarea></label>
- <p class="sm">Default bands follow the Nigeria Tax Act 2025 (first 800,000 at 0%, then 15%, 18%, 21%, 23%, 25%). Rates and reliefs change, so confirm them with your tax adviser before running real payroll.</p><p><button onclick="saveCfg()">Save settings</button></p></div>`}
+ <p class="sm">Default bands follow the Nigeria Tax Act 2025 as understood; confirm rates and reliefs with your tax adviser. Loan and other deductions are set per person in Staff register, Edit, and can be changed per month on each payroll line.</p><p><button onclick="saveCfg()">Save settings</button></p></div>`}
 function slip(rid,sid){const r=db.pay.find(x=>x.id==rid),l=r&&r.lines.find(x=>x.sid==sid);if(!l)return;const R=(a,b)=>`<tr><td>${a}</td><td class="n">${b}</td></tr>`;
- pdfDoc('Payslip-'+l.no+'-'+r.m,'Payslip '+r.m,`<h3>${esc(db.co.name||'Ledger')}</h3><p>Employee: <b>${esc(l.name)}</b> (${esc(l.no)})<br>Department: ${esc(l.dept)}<br>Pay period: ${r.m}</p><table style="max-width:460px">${R('Gross salary',fmt(l.gross))}${R('Absence / unpaid leave',fmt(-l.ded))}${R('<b>Earned pay</b>','<b>'+fmt(l.earned)+'</b>')}${R('Pension',fmt(-l.pen))}${R('NHF',fmt(-l.nhf))}${R('PAYE tax',fmt(-l.tax))}<tr class="t"><td>Net pay</td><td class="n">${fmt(l.net)}</td></tr></table><p class="sm">Working days ${l.wd}; present ${l.pres}; paid leave ${l.paid}; unpaid leave ${l.unp}; no record ${l.abs}.</p>`)}
+ pdfDoc('Payslip-'+l.no+'-'+r.m,'Payslip '+r.m,`<h3>${esc(db.co.name||'Ledger')}</h3><p>Employee: <b>${esc(l.name)}</b> (${esc(l.no)})<br>Department: ${esc(l.dept)}<br>Pay period: ${r.m}</p><table style="max-width:460px">${R('Basic salary',fmt(l.basic))}${R('Other allowances',fmt(l.allow))}${R('<b>Gross salary</b>','<b>'+fmt(l.gross)+'</b>')}${R('Absence / unpaid leave',fmt(-l.ded))}${R('Pension',fmt(-l.pen))}${R('NHF',fmt(-l.nhf))}${R('PAYE tax',fmt(-l.tax))}${R('Loan deduction',fmt(-l.loan))}${R('Other deductions',fmt(-l.oth))}<tr class="t"><td>Net pay</td><td class="n">${fmt(l.net)}</td></tr></table><p class="sm">Working days ${l.wd}; present ${l.pres}; paid leave ${l.paid}; unpaid leave ${l.unp}; no record ${l.abs}.</p>`)}
 /* analytics */
 function hrStats(){const td=HLd(),cm=td.slice(0,7),ms=[...Array(12)].map((_,i)=>HmAdd(cm,i-11)),hc=m=>db.staff.filter(s=>HsS(s)<=HmE(m)&&(!s.inactive||s.inactive>HmE(m))).length,H=ms.map(hc),mx=Math.max(1,...H);
  const from=HmS(ms[0]),lv=db.staff.filter(s=>s.inactive&&s.inactive>=from).length,avg=H.reduce((a,b)=>a+b,0)/12,A=ms.slice(6).map(m=>{const L=db.staff.filter(s=>HsS(s)<=HmE(m)&&(!s.inactive||s.inactive>=HmS(m))).map(s=>Hcalc(s,m)),S=k=>L.reduce((a,l)=>a+l[k],0);return{m,paid:S('paid'),unp:S('unp'),abs:S('abs'),rate:S('emp')?S('pres')/S('emp')*100:0}}),cur=db.staff.filter(s=>!s.inactive).map(s=>Hcalc(s,cm)).sort((a,b)=>(b.paid+b.unp+b.abs)-(a.paid+a.unp+a.abs)).slice(0,5);
@@ -667,7 +696,7 @@ function admin(){return `<!--S:Organisation--><div class="card"><h2>Organisation
  <label>Company name<input id="c_n" value="${esc(db.co.name)}"></label><label>Logo<input id="c_l" type="file" accept="image/*"></label></div>
  <p><button onclick="saveCo()">Save organisation</button></p></div>
  <!--S:User logins--><div class="card"><h2>User logins</h2><p class="sm">Each user can only open the module for their role: Director → Directors, Human Resource → Human Resources, Project Staff → Projects, Finance → Finance and Accounts (including Finance Approvals). Only the administrator sees Admin and every module.</p>
- <div class="grid"><label>Full name<input id="s_n"></label><label>Username<input id="s_u"></label><label>Password<input id="s_p" type="password"></label>
+ <div class="grid"><label>Registered employee ID<select id="s_e" onchange="empPick()"><option value="">Not an employee / select ID</option>${db.staff.filter(x=>!x.inactive&&!x.uname).map(x=>`<option value="${x.id}">${esc(x.no)} - ${esc(x.name)}</option>`).join('')}</select></label><label>Full name<input id="s_n"></label><label>Username<input id="s_u"></label><label>Password<input id="s_p" type="password"></label>
  <label>Role<select id="s_r"><option value="">Select role</option>${ROLES.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></label></div>
  <p><button onclick="addStaff()">Add user</button></p>
  <div class="w"><table><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr>${db.users.map(u=>`<tr><td>${esc(u.n)}</td><td>${esc(u.u)}</td><td>${u.role=='admin'?'Administrator':`<select onchange="setRole('${esc(u.u)}',this.value)" style="margin:0">${ROLES.map(([v,t])=>`<option value="${v}" ${u.role==v?'selected':''}>${t}</option>`).join('')}</select>`}</td><td>${u.role!='admin'?`<button class="s" onclick="rmStaff('${esc(u.u)}')">Remove</button>`:'<span class="sm">Administrator</span>'}</td></tr>`).join('')}</table></div></div>
@@ -686,7 +715,7 @@ function restore(){const f=$('#r_f').files[0];if(!f)return toast('Choose a backu
   const cnt=Object.values(o.companies).reduce((a,c)=>a+c.tx.length,0);
   if(!confirm('Restore this backup? It contains '+Object.keys(o.companies).length+' company(ies) and '+cnt+' transactions. Everything currently in the app will be replaced.'))return;
   if(!o.companies[o.active])o.active=Object.keys(o.companies)[0];
-  root=o;ensure();save();view='Dashboard';editId=null;draft=null;toast('Backup restored');render()};
+  root=o;ensure();save();view='Record Transactions';editId=null;draft=null;toast('Backup restored');render()};
  r.readAsText(f)}
 function saveCo(){db.co.name=$('#c_n').value.trim();const f=$('#c_l').files[0];
  const done=()=>{save();render();toast('Organisation saved')};
@@ -696,11 +725,12 @@ function setRole(u,r){const x=db.users.find(y=>y.u==u&&y.role!='admin');if(!x||!
 function rmStaff(u){const x=db.users.find(y=>y.u==u&&y.role!='admin');if(!x)return;
  if(!confirm('Remove '+x.n+' ('+x.u+')? They will no longer be able to sign in. Transactions they recorded are kept with their name.'))return;
  db.users=db.users.filter(y=>y!==x);save();render();toast('Staff removed')}
+function empPick(){const e=db.staff.find(x=>x.id==$('#s_e').value);if(!e)return;$('#s_n').value=e.name;if(!$('#s_u').value)$('#s_u').value=e.no.toLowerCase();if(!$('#s_r').value)$('#s_r').value='staff'}
 async function addStaff(){const n=$('#s_n').value.trim(),u=$('#s_u').value.trim(),p=$('#s_p').value;
  if(!n||!u||p.length<4)return toast('Enter name, username and a password of 4+ characters');
  if(db.users.some(x=>x.u==u))return toast('Username already exists');
  const role=$('#s_r').value;if(!role)return toast('Select a role');
- db.users.push({u,n,h:await hash(p),role});save();render();toast('User added')}
+ db.users.push({u,n,h:await hash(p),role});const e=db.staff.find(x=>x.id==$('#s_e').value);if(e){e.uname=u;e.eby=me.n;e.eat=now()}save();render();toast(e?'User added and linked to '+e.no:'User added')}
 
 /* ---------- export ---------- */
 const COLS=['Date','Doc No.','Payer/Payee','Description','Debit class','Credit class','Amount','Recorded by','Recorded at','Edited by','Edited at'];
