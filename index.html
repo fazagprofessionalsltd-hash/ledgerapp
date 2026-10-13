@@ -51,7 +51,7 @@ const fmt=n=>Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximum
 const when=t=>t?new Date(t).toLocaleString():'';
 /* ---------- cloud sync (Supabase) ---------- */
 /* Paste your own values from Supabase: Project Settings > API. Use the anon/public key ONLY. */
-const SUPABASE_URL='https://jsrrqqnxzleqhdkmtjvz.supabase.co',SUPABASE_KEY='sb_publishable__S9vxgX40m5xx3pZhX6Yhw_k1m-QRyg';
+const SUPABASE_URL='https://jsrrqqnxzleqhdkmtjvz.supabase.co/',SUPABASE_KEY='sb_publishable__S9vxgX40m5xx3pZhX6Yhw_k1m-QRyg';
 let sb=null;try{if(window.supabase&&/^https:\/\//.test(SUPABASE_URL))sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){}
 const cloud={user:null,ready:false,msg:''};let ctimer=null;
 const cloudPush=()=>{if(!sb||!cloud.user||!cloud.ready)return;clearTimeout(ctimer);ctimer=setTimeout(pushNow,1500)};
@@ -100,6 +100,7 @@ async function boot(){
  render()}
 addEventListener('online',()=>{if(cloud.user)syncNow()});
 
+const HDEF={pen:8,nhf:0,ded:0,al:20,bands:[[800000,0],[2200000,15],[9000000,18],[13000000,21],[25000000,23],[0,25]]};
 let root;try{root=JSON.parse(localStorage.getItem('acc'))}catch(e){}
 const seed=name=>({co:{name,logo:''},payees:[],tx:[],classes:[['Cash','Assets'],['Bank','Assets'],['Sales','Revenue'],['Cost of Goods','Direct Costs'],['Rent','Expense'],['Equipment','Assets'],["Owner's Capital",'Equity'],['Loans','Liabilities']].map(([n,c])=>({n,c}))});
 if(root&&!root.companies){const o=root;root={users:o.users,companies:{c1:{co:o.co,payees:o.payees,tx:o.tx,classes:o.classes,modes:o.modes}},active:'c1'}}
@@ -567,7 +568,7 @@ const HLd=d=>{d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).
 const HWd=(a,b)=>{let n=0;for(let d=new Date(a+'T00:00');HLd(d)<=b;d.setDate(d.getDate()+1))if(d.getDay()%6)n++;return n};
 const HmS=m=>m+'-01',HmE=m=>HLd(new Date(+m.slice(0,4),+m.slice(5,7),0)),HmAdd=(m,k)=>HLd(new Date(+m.slice(0,4),+m.slice(5,7)-1+k,1)).slice(0,7);
 const HsS=s=>s.start||(s.at||'').slice(0,10)||'2000-01-01',HmaxD=(a,b)=>a>b?a:b,HminD=(a,b)=>a<b?a:b;
-const HLT=['Annual','Sick','Casual','Maternity/Paternity','Unpaid'],HDEF={pen:8,nhf:0,ded:0,al:20,bands:[[800000,0],[2200000,15],[9000000,18],[13000000,21],[25000000,23],[0,25]]};
+const HLT=['Annual','Sick','Casual','Maternity/Paternity','Unpaid'];
 let HAm=HLd().slice(0,7),HAf='',HPm=HLd().slice(0,7),hEd=null;
 const hMine=()=>me&&root.companies[root.active].staff.find(s=>s.uname&&s.uname==me.u&&!s.inactive);
 const hNm=id=>(db.staff.find(s=>s.id==id)||{}).name||'?';
